@@ -29,6 +29,7 @@ int _start()
 
 	console_set_color(CYAN);
 	INFO("FTPVita by xerpi\n");
+	console_set_color(MAHO);
 	INFO("Press START to exit\n");
 	console_set_color(WHITE);
 

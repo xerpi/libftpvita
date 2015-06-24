@@ -334,21 +334,27 @@ static void send_file(ClientInfo *client, const char *path)
 	}
 }
 
-static void cmd_RETR_func(ClientInfo *client)
+/* This functions generated a PSVita valid path with the input
+ * from RETR, STOR, DELE, RMD and MKD commands */
+static void gen_filepath(ClientInfo *client, char *dest_path)
 {
 	char cmd_path[PATH_MAX];
-	char retr_path[PATH_MAX];
-
 	sscanf(client->recv_buffer, "%*[^ ] %[^\r\n\t]", cmd_path);
 
 	if (cmd_path[0] != '/') { /* The file is relative to current dir */
 		/* Append the file to the current path */
-		sprintf(retr_path, "%s/%s", client->cur_path, cmd_path);
+		sprintf(dest_path, "%s%s", client->cur_path, cmd_path);
 	} else {
 		/* Add "pss0:" to the file */
-		sprintf(retr_path, "pss0:%s", cmd_path);
+		sprintf(dest_path, "pss0:%s", cmd_path);
 	}
-	send_file(client, retr_path);
+}
+
+static void cmd_RETR_func(ClientInfo *client)
+{
+	char dest_path[PATH_MAX];
+	gen_filepath(client, dest_path);
+	send_file(client, dest_path);
 }
 
 static void receive_file(ClientInfo *client, const char *path)
@@ -386,19 +392,9 @@ static void receive_file(ClientInfo *client, const char *path)
 
 static void cmd_STOR_func(ClientInfo *client)
 {
-	char cmd_path[PATH_MAX];
-	char retr_path[PATH_MAX];
-
-	sscanf(client->recv_buffer, "%*[^ ] %[^\r\n\t]", cmd_path);
-
-	if (cmd_path[0] != '/') { /* The file is relative to current dir */
-		/* Append the file to the current path */
-		sprintf(retr_path, "%s/%s", client->cur_path, cmd_path);
-	} else {
-		/* Add "pss0:" to the file */
-		sprintf(retr_path, "pss0:%s", cmd_path);
-	}
-	receive_file(client, retr_path);
+	char dest_path[PATH_MAX];
+	gen_filepath(client, dest_path);
+	receive_file(client, dest_path);
 }
 
 static void delete_file(ClientInfo *client, const char *path)
@@ -406,27 +402,17 @@ static void delete_file(ClientInfo *client, const char *path)
 	DEBUG("Deleting: %s\n", path);
 
 	if (sceIoRemove(path) >= 0) {
-		client_send_ctrl_msg(client, "226 Delete completed.\n");
+		client_send_ctrl_msg(client, "226 File deleted.\n");
 	} else {
-		client_send_ctrl_msg(client, "550 Could not delete.\n");
+		client_send_ctrl_msg(client, "550 Could not delete the file.\n");
 	}
 }
 
 static void cmd_DELE_func(ClientInfo *client)
 {
-	char cmd_path[PATH_MAX];
-	char retr_path[PATH_MAX];
-
-	sscanf(client->recv_buffer, "%*[^ ] %[^\r\n\t]", cmd_path);
-
-	if (cmd_path[0] != '/') { /* The file is relative to current dir */
-		/* Append the file to the current path */
-		sprintf(retr_path, "%s/%s", client->cur_path, cmd_path);
-	} else {
-		/* Add "pss0:" to the file */
-		sprintf(retr_path, "pss0:%s", cmd_path);
-	}
-	delete_file(client, retr_path);
+	char dest_path[PATH_MAX];
+	gen_filepath(client, dest_path);
+	delete_file(client, dest_path);
 }
 
 static void delete_dir(ClientInfo *client, const char *path)
@@ -434,27 +420,35 @@ static void delete_dir(ClientInfo *client, const char *path)
 	DEBUG("Deleting: %s\n", path);
 
 	if (sceIoRmdir(path) >= 0) {
-		client_send_ctrl_msg(client, "226 Delete completed.\n");
+		client_send_ctrl_msg(client, "226 Directory deleted.\n");
 	} else {
-		client_send_ctrl_msg(client, "550 Could not delete.\n");
+		client_send_ctrl_msg(client, "550 Could not delete the directory.\n");
 	}
 }
 
 static void cmd_RMD_func(ClientInfo *client)
 {
-	char cmd_path[PATH_MAX];
-	char retr_path[PATH_MAX];
+	char dest_path[PATH_MAX];
+	gen_filepath(client, dest_path);
+	delete_dir(client, dest_path);
+}
 
-	sscanf(client->recv_buffer, "%*[^ ] %[^\r\n\t]", cmd_path);
+static void create_dir(ClientInfo *client, const char *path)
+{
+	DEBUG("Creating: %s\n", path);
 
-	if (cmd_path[0] != '/') { /* The file is relative to current dir */
-		/* Append the file to the current path */
-		sprintf(retr_path, "%s/%s", client->cur_path, cmd_path);
+	if (sceIoMkdir(path, 0777) >= 0) {
+		client_send_ctrl_msg(client, "226 Directory created.\n");
 	} else {
-		/* Add "pss0:" to the file */
-		sprintf(retr_path, "pss0:%s", cmd_path);
+		client_send_ctrl_msg(client, "550 Could not create the directory.\n");
 	}
-	delete_dir(client, retr_path);
+}
+
+static void cmd_MKD_func(ClientInfo *client)
+{
+	char dest_path[PATH_MAX];
+	gen_filepath(client, dest_path);
+	create_dir(client, dest_path);
 }
 
 
@@ -474,6 +468,7 @@ static cmd_dispatch_entry cmd_dispatch_table[] = {
 	add_entry(STOR),
 	add_entry(DELE),
 	add_entry(RMD),
+	add_entry(MKD),
 	{NULL, NULL}
 };
 
@@ -504,8 +499,10 @@ static int client_thread(SceSize args, void *argp)
 
 		client->n_recv = sceNetRecv(client->ctrl_sockfd, client->recv_buffer, sizeof(client->recv_buffer), 0);
 		if (client->n_recv > 0) {
-			INFO("Received %i bytes from client number %i:\n\t> %s",
-				client->n_recv, client->num, client->recv_buffer);
+			DEBUG("Received %i bytes from client number %i:\n",
+				client->n_recv, client->num);
+
+			INFO("\t> %s\n", client->recv_buffer);
 
 			/* The command are the first chars until the first space */
 			sscanf(client->recv_buffer, "%s", cmd);
@@ -522,7 +519,7 @@ static int client_thread(SceSize args, void *argp)
 
 		} else if (client->n_recv == 0) {
 			/* Value 0 means connection closed */
-			INFO("Connection closed by the client %i\n", client->num);
+			INFO("Connection closed by the client %i.\n", client->num);
 			break;
 		}
 
@@ -577,7 +574,10 @@ static int server_thread(SceSize args, void *argp)
 	/* Get IP address */
 	ret = sceNetCtlInetGetInfo(PSP2_NETCTL_INFO_GET_IP_ADDRESS, &info);
 	DEBUG("sceNetCtlInetGetInfo(): 0x%08X\n", ret);
+
+	console_set_color(LIME);
 	INFO("PSVita listening on IP %s Port %i\n", info.ip_address, FTP_PORT);
+	console_set_color(WHITE);
 
 	while (server_thread_run) {
 
