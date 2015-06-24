@@ -24,7 +24,8 @@ static int number_clients = 0;
 typedef struct {
 	int num;
 	SceUID thid;
-	int sockfd;
+	int ctrl_sockfd;
+	int data_sockfd;
 	SceNetSockaddrIn addr;
 	int n_recv;
 	char recv_buffer[512];
@@ -37,23 +38,80 @@ typedef struct {
 	cmd_dispatch_func func;
 } cmd_dispatch_entry;
 
-#define client_sendstr(cl, str) \
-	sceNetSend(cl->sockfd, str, strlen(str), 0)
+#define client_sendstr_ctrl(cl, str) \
+	sceNetSend(cl->ctrl_sockfd, str, strlen(str), 0)
 
 
 static void cmd_USER_func(ClientInfo *client)
 {
-	client_sendstr(client, "331 Username OK, need password b0ss.\n");
+	client_sendstr_ctrl(client, "331 Username OK, need password b0ss.\n");
 }
 
 static void cmd_PASS_func(ClientInfo *client)
 {
-	client_sendstr(client, "230 User logged in!\n");
+	client_sendstr_ctrl(client, "230 User logged in!\n");
 }
 
 static void cmd_QUIT_func(ClientInfo *client)
 {
-	client_sendstr(client, "221 Goodbye senpai :'(\n");
+	client_sendstr_ctrl(client, "221 Goodbye senpai :'(\n");
+}
+
+static void cmd_SYST_func(ClientInfo *client)
+{
+	client_sendstr_ctrl(client, "215 UNIX Type: L8\n");
+}
+
+void cmd_PORT_func(ClientInfo *client)
+{
+	int ret;
+	unsigned char active_ip[4];
+	unsigned char porthi, portlo;
+	unsigned short active_port;
+	char ip_str[16];
+	SceNetInAddr active_addr;
+	SceNetSockaddrIn active_sockaddr;
+
+	sscanf(client->recv_buffer, "%*s %hhu,%hhu,%hhu,%hhu,%hhu,%hhu",
+		&active_ip[0], &active_ip[1], &active_ip[2], &active_ip[3],
+		&porthi, &portlo);
+
+	active_port = portlo + porthi*256;
+
+	/* Convert to an X.X.X.X IP string */
+	sprintf(ip_str, "%d.%d.%d.%d",
+		active_ip[0], active_ip[1], active_ip[2], active_ip[3]);
+
+	/* Convert the IP to a SceNetInAddr */
+	sceNetInetPton(PSP2_NET_AF_INET, ip_str, &active_addr);
+
+	DEBUG("PORT connection to client's IP: %s Port: %d\n", ip_str, active_port);
+
+	/* Create active mode socket name */
+	char active_socket_name[64];
+	sprintf(active_socket_name, "FTPVita_client_%i_active_socket",
+		client->num);
+
+	/* Create active mode socket */
+	client->data_sockfd = sceNetSocket(active_socket_name,
+		PSP2_NET_AF_INET,
+		PSP2_NET_SOCK_STREAM,
+		0);
+
+	DEBUG("Client %i active socket fd: %d\n", client->num,
+		client->data_sockfd);
+
+	/* Fill active mode socket address */
+	active_sockaddr.sin_family = PSP2_NET_AF_INET;
+	active_sockaddr.sin_addr = active_addr;
+	active_sockaddr.sin_port = sceNetHtons(active_port);
+
+	/* Connect to the client using the new socket */
+	ret = sceNetConnect(client->data_sockfd, (SceNetSockaddr *)&active_sockaddr,
+		sizeof(active_sockaddr));
+	DEBUG("sceNetConnect(): 0x%08X\n", ret);
+
+	client_sendstr_ctrl(client, "200 PORT command successful!\n");
 }
 
 #define add_entry(name) {#name, cmd_##name##_func}
@@ -61,6 +119,8 @@ static cmd_dispatch_entry cmd_dispatch_table[] = {
 	add_entry(USER),
 	add_entry(PASS),
 	add_entry(QUIT),
+	add_entry(SYST),
+	add_entry(PORT),
 	{NULL, NULL}
 };
 
@@ -83,13 +143,13 @@ static int client_thread(SceSize args, void *argp)
 
 	DEBUG("Client thread %i started!\n", client->num);
 
-	client_sendstr(client, "220 FTPVita Server ready.\n");
+	client_sendstr_ctrl(client, "220 FTPVita Server ready.\n");
 
 	while (client_threads_run) {
 
 		memset(client->recv_buffer, 0, sizeof(client->recv_buffer));
 
-		client->n_recv = sceNetRecv(client->sockfd, client->recv_buffer, sizeof(client->recv_buffer), 0);
+		client->n_recv = sceNetRecv(client->ctrl_sockfd, client->recv_buffer, sizeof(client->recv_buffer), 0);
 		if (client->n_recv > 0) {
 			INFO("Received %i bytes from client number %i:\n\t> %s",
 				client->n_recv, client->num, client->recv_buffer);
@@ -103,7 +163,7 @@ static int client_thread(SceSize args, void *argp)
 			if ((dispatch_func = get_dispatch_func(cmd))) {
 				dispatch_func(client);
 			} else {
-				client_sendstr(client, "502 Sorry, command not implemented. :(\n");
+				client_sendstr_ctrl(client, "502 Sorry, command not implemented. :(\n");
 			}
 
 
@@ -116,7 +176,8 @@ static int client_thread(SceSize args, void *argp)
 		sceKernelDelayThread(10*1000);
 	}
 
-	sceNetSocketClose(client->sockfd);
+	sceNetSocketClose(client->ctrl_sockfd);
+	sceNetSocketClose(client->data_sockfd);
 
 	DEBUG("Client thread %i exiting!\n", client->num);
 
@@ -200,7 +261,7 @@ static int server_thread(SceSize args, void *argp)
 			ClientInfo *clinfo = malloc(sizeof(*clinfo));
 			clinfo->num = number_clients;
 			clinfo->thid = client_thid;
-			clinfo->sockfd = client_sockfd;
+			clinfo->ctrl_sockfd = client_sockfd;
 			memcpy(&clinfo->addr, &clientaddr, sizeof(clinfo->addr));
 
 			/* Start the client thread */
