@@ -26,15 +26,47 @@ typedef struct {
 	SceUID thid;
 	int sockfd;
 	SceNetSockaddrIn addr;
+	int n_recv;
+	char recv_buffer[512];
 } ClientInfo;
 
+typedef void (*cmd_dispatch_func)(ClientInfo *client);
+
+typedef struct {
+	const char *cmd;
+	cmd_dispatch_func func;
+} cmd_dispatch_entry;
+
 #define client_sendstr(cl, str) \
-	sceNetSend(cl->sockfd, str, strlen(str) + 1, 0)
+	sceNetSend(cl->sockfd, str, strlen(str), 0)
+
+
+static void cmd_USER_func(ClientInfo *client)
+{
+	client_sendstr(client, "331 Username OK, need password b0ss.\n");
+}
+
+#define add_entry(name) {#name, cmd_##name##_func}
+static cmd_dispatch_entry cmd_dispatch_table[] = {
+	add_entry(USER),
+	{NULL, NULL}
+};
+
+static cmd_dispatch_func get_dispatch_func(const char *cmd)
+{
+	int i;
+	for(i = 0; cmd_dispatch_table[i].cmd && cmd_dispatch_table[i].func; i++) {
+		if (strcmp(cmd, cmd_dispatch_table[i].cmd) == 0) {
+			return cmd_dispatch_table[i].func;
+		}
+	}
+	return NULL;
+}
 
 static int client_thread(SceSize args, void *argp)
 {
-	char buffer[512];
-	int n_recv;
+	char cmd[16];
+	cmd_dispatch_func dispatch_func;
 	ClientInfo *client = (ClientInfo *)argp;
 
 	DEBUG("Client thread %i started!\n", client->num);
@@ -43,14 +75,27 @@ static int client_thread(SceSize args, void *argp)
 
 	while (client_threads_run) {
 
-		memset(buffer, 0, sizeof(buffer));
+		memset(client->recv_buffer, 0, sizeof(client->recv_buffer));
 
-		n_recv = sceNetRecv(client->sockfd, buffer, sizeof(buffer), 0);
-		if (n_recv > 0) {
+		client->n_recv = sceNetRecv(client->sockfd, client->recv_buffer, sizeof(client->recv_buffer), 0);
+		if (client->n_recv > 0) {
 			INFO("Received %i bytes from client number %i:\n\t> %s",
-				n_recv, client->num, buffer);
+				client->n_recv, client->num, client->recv_buffer);
 
-		} else if (n_recv == 0) {
+			/* Wait 1 ms before sending any data */
+			sceKernelDelayThread(1000);
+
+			/* The command are the first chars until the first space */
+			sscanf(client->recv_buffer, "%s", cmd);
+
+			if ((dispatch_func = get_dispatch_func(cmd))) {
+				dispatch_func(client);
+			} else {
+				client_sendstr(client, "502 Sorry, command not implemented. :(\n");
+			}
+
+
+		} else if (client->n_recv == 0) {
 			/* Value 0 means connection closed */
 			INFO("Connection closed by the client %i\n", client->num);
 			break;
