@@ -27,7 +27,10 @@ int _start()
 	init_video();
 	console_init();
 
+	console_set_color(CYAN);
 	INFO("FTPVita by xerpi\n");
+	console_set_color(WHITE);
+
 	ftp_init();
 
 	/* Input variables */

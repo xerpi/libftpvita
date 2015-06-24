@@ -43,10 +43,16 @@ static int client_thread(SceSize args, void *argp)
 
 	while (client_threads_run) {
 
+		memset(buffer, 0, sizeof(buffer));
+
 		n_recv = sceNetRecv(client->sockfd, buffer, sizeof(buffer), 0);
 		if (n_recv > 0) {
 			INFO("Received %i bytes from client number %i:\n\t%s\n",
 				n_recv, client->num, buffer);
+		} else if (n_recv == 0) {
+			/* Value 0 means connection closed */
+			INFO("Connection closed by the client %i\n", client->num);
+			break;
 		}
 
 		sceKernelDelayThread(10*1000);
@@ -119,8 +125,7 @@ static int server_thread(SceSize args, void *argp)
 				sizeof(remote_ip));
 
 			DEBUG("\tRemote IP: %s Remote port: %i\n",
-				remote_ip,
-				clientaddr.sin_port);
+				remote_ip, clientaddr.sin_port);
 
 			/* Create a new thread for the client */
 			char client_thread_name[64];
