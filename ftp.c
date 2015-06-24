@@ -225,8 +225,57 @@ void cmd_LIST_func(ClientInfo *client)
 void cmd_PWD_func(ClientInfo *client)
 {
 	char msg[PATH_MAX];
-	sprintf(msg, "257 \"%s\" is the current directory.\n", client->cur_path);
+	/* We don't want to send "pss0:" */
+	const char *pwd_path = strchr(client->cur_path, '/');
+
+	sprintf(msg, "257 \"%s\" is the current directory.\n", pwd_path);
 	client_send_ctrl_msg(client, msg);
+}
+
+void cmd_CWD_func(ClientInfo *client)
+{
+	char path[PATH_MAX];
+	int n = sscanf(client->recv_buffer, "%*s %[^\r\n\t]", path);
+
+	if (n < 1) {
+		client_send_ctrl_msg(client, "500 Syntax error, command unrecognized.\n");
+	} else {
+		if (path[0] != '/') { /* Change dir relative to current dir */
+			strcat(client->cur_path, path);
+		} else {
+			sprintf(client->cur_path, "pss0:%s", path);
+		}
+
+		/* If there isn't "/" at the end, add it */
+		if (client->cur_path[strlen(client->cur_path) - 1] != '/') {
+			strcat(client->cur_path, "/");
+		}
+
+		client_send_ctrl_msg(client, "250 Requested file action okay, completed.\n");
+	}
+}
+
+void cmd_TYPE_func(ClientInfo *client)
+{
+	char data_type;
+	char format_control[8];
+	int n_args = sscanf(client->recv_buffer, "%*s %c %s", &data_type, format_control);
+
+	if (n_args > 0) {
+		switch(data_type) {
+		case 'A':
+		case 'I':
+			client_send_ctrl_msg(client, "200 Okay\n");
+			break;
+		case 'E':
+		case 'L':
+		default:
+			client_send_ctrl_msg(client, "504 Error: bad parameters?\n");
+			break;
+		}
+	} else {
+		client_send_ctrl_msg(client, "504 Error: bad parameters?\n");
+	}
 }
 
 
@@ -239,6 +288,8 @@ static cmd_dispatch_entry cmd_dispatch_table[] = {
 	add_entry(PORT),
 	add_entry(LIST),
 	add_entry(PWD),
+	add_entry(CWD),
+	add_entry(TYPE),
 	{NULL, NULL}
 };
 
@@ -385,7 +436,7 @@ static int server_thread(SceSize args, void *argp)
 			clinfo->thid = client_thid;
 			clinfo->ctrl_sockfd = client_sockfd;
 			clinfo->data_con_type = FTP_DATA_CONNECTION_NONE;
-			strcpy(clinfo->cur_path, "pss0:/top/Documents");
+			strcpy(clinfo->cur_path, "pss0:/top/Documents/");
 			memcpy(&clinfo->addr, &clientaddr, sizeof(clinfo->addr));
 
 			/* Start the client thread */
