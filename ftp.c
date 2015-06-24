@@ -81,7 +81,7 @@ static void cmd_SYST_func(ClientInfo *client)
 	client_send_ctrl_msg(client, "215 UNIX Type: L8\n");
 }
 
-void cmd_PORT_func(ClientInfo *client)
+static void cmd_PORT_func(ClientInfo *client)
 {
 	unsigned char data_ip[4];
 	unsigned char porthi, portlo;
@@ -209,7 +209,7 @@ static void send_LIST(ClientInfo *client, const char *path)
 	client_send_ctrl_msg(client, "226 Transfer complete.\n");
 }
 
-void cmd_LIST_func(ClientInfo *client)
+static void cmd_LIST_func(ClientInfo *client)
 {
 	char list_path[PATH_MAX];
 
@@ -222,7 +222,7 @@ void cmd_LIST_func(ClientInfo *client)
 	}
 }
 
-void cmd_PWD_func(ClientInfo *client)
+static void cmd_PWD_func(ClientInfo *client)
 {
 	char msg[PATH_MAX];
 	/* We don't want to send "pss0:" */
@@ -232,7 +232,7 @@ void cmd_PWD_func(ClientInfo *client)
 	client_send_ctrl_msg(client, msg);
 }
 
-void cmd_CWD_func(ClientInfo *client)
+static void cmd_CWD_func(ClientInfo *client)
 {
 	char path[PATH_MAX];
 	int n = sscanf(client->recv_buffer, "%*s %[^\r\n\t]", path);
@@ -255,7 +255,7 @@ void cmd_CWD_func(ClientInfo *client)
 	}
 }
 
-void cmd_TYPE_func(ClientInfo *client)
+static void cmd_TYPE_func(ClientInfo *client)
 {
 	char data_type;
 	char format_control[8];
@@ -278,6 +278,69 @@ void cmd_TYPE_func(ClientInfo *client)
 	}
 }
 
+static void dir_up(const char *in, char *out)
+{
+	const char *pch = strrchr(in, '/');
+	if (pch && pch != in) {
+		size_t s = pch - in;
+		strncpy(out, in, s);
+		out[s] = '\0';
+	} else {
+		strcpy(out, "/");
+	}
+}
+
+static void cmd_CDUP_func(ClientInfo *client)
+{
+	int s_len = strlen(client->cur_path) + 1;
+	char buf[s_len];
+	memcpy(buf, client->cur_path, s_len);
+	dir_up(buf, client->cur_path);
+	client_send_ctrl_msg(client, "200 Command okay.\n");
+}
+
+static void send_file(ClientInfo *client, const char *path)
+{
+	unsigned char buffer[4*1024];
+	SceUID fd;
+	unsigned int bytes_read;
+
+	DEBUG("Opening: %s\n", path);
+
+	if ((fd = sceIoOpen(path, PSP2_O_RDONLY, 0777)) >= 0) {
+
+		client_open_data_connection(client);
+		client_send_ctrl_msg(client, "150 Opening Image mode data transfer\n");
+
+		while ((bytes_read = sceIoRead (fd, buffer, sizeof(buffer))) > 0) {
+			sceNetSend(client->data_sockfd, buffer, bytes_read, 0);
+		}
+
+		sceIoClose(fd);
+		client_send_ctrl_msg(client, "226 Transfer completed.\n");
+		client_close_data_connection(client);
+
+	} else {
+		client_send_ctrl_msg(client, "550 File not found.\n");
+	}
+}
+
+void cmd_RETR_func(ClientInfo *client)
+{
+	char cmd_path[PATH_MAX];
+	char retr_path[PATH_MAX];
+
+	sscanf(client->recv_buffer, "%*[^ ] %[^\r\n\t]", cmd_path);
+
+	if (cmd_path[0] != '/') { /* The file is relative to current dir */
+		/* Append the file to the current path */
+		sprintf(retr_path, "%s/%s", client->cur_path, cmd_path);
+	} else {
+		/* Add "pss0:" to the file */
+		sprintf(retr_path, "pss0:%s", cmd_path);
+	}
+	send_file(client, retr_path);
+}
 
 #define add_entry(name) {#name, cmd_##name##_func}
 static cmd_dispatch_entry cmd_dispatch_table[] = {
@@ -290,6 +353,8 @@ static cmd_dispatch_entry cmd_dispatch_table[] = {
 	add_entry(PWD),
 	add_entry(CWD),
 	add_entry(TYPE),
+	add_entry(CDUP),
+	add_entry(RETR),
 	{NULL, NULL}
 };
 

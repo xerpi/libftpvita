@@ -39,6 +39,37 @@ int sceKernelGetMutexInfo(SceUID mutexId, SceKernelMutexInfo *pInfo);
 
 int sceKernelDelayThread(unsigned int usec);
 
+
+/* Files */
+
+#define PSP2_O_RDONLY	0x0001
+#define PSP2_O_WRONLY	0x0002
+#define PSP2_O_RDWR	(PSP2_O_RDONLY | PSP2_O_WRONLY)
+#define PSP2_O_NBLOCK	0x0004
+#define PSP2_O_DIROPEN	0x0008	// Internal use for dopen
+#define PSP2_O_APPEND	0x0100
+#define PSP2_O_CREAT	0x0200
+#define PSP2_O_TRUNC	0x0400
+#define	PSP2_O_EXCL	0x0800
+#define PSP2_O_NOWAIT	0x8000
+
+#define PSP2_SEEK_SET	0
+#define PSP2_SEEK_CUR	1
+#define PSP2_SEEK_END	2
+
+SceUID sceIoOpen(const char *file, int flags, SceMode mode);
+int sceIoClose(SceUID fd);
+int sceIoRead(SceUID fd, void *data, SceSize size);
+int sceIoWrite(SceUID fd, const void *data, SceSize size);
+SceOff sceIoLseek(SceUID fd, SceOff offset, int whence);
+int sceIoRemove(const char *file);
+int sceIoMkdir(const char *dir, SceMode mode);
+int sceIoRmdir(const char *path);
+int sceIoChdir(const char *path);
+int sceIoRename(const char *oldname, const char *newname);
+
+/* Directories */
+
 typedef struct SceIoStat {
 	SceMode 	st_mode;
 	unsigned int 	st_attr;
@@ -97,7 +128,6 @@ enum IOFileModes {
 #define FIO_SO_ISLNK(m)	(((m) & FIO_SO_IFMT) == FIO_SO_IFLNK)
 #define FIO_SO_ISREG(m)	(((m) & FIO_SO_IFMT) == FIO_SO_IFREG)
 #define FIO_SO_ISDIR(m)	(((m) & FIO_SO_IFMT) == FIO_SO_IFDIR)
-
 
 SceUID sceIoDopen(const char *dirname);
 int sceIoDread(SceUID fd, SceIoDirent *dir);
