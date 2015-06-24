@@ -16,6 +16,8 @@
 
 #define FTP_PORT 1337
 #define NET_INIT_SIZE 0x4000
+#define FILE_BUF_SIZE 4*1024*1024
+
 static int ftp_initialized = 0;
 static SceUID server_thid;
 static int server_thread_run;
@@ -301,7 +303,7 @@ static void cmd_CDUP_func(ClientInfo *client)
 
 static void send_file(ClientInfo *client, const char *path)
 {
-	unsigned char buffer[4*1024];
+	unsigned char *buffer;
 	SceUID fd;
 	unsigned int bytes_read;
 
@@ -309,14 +311,21 @@ static void send_file(ClientInfo *client, const char *path)
 
 	if ((fd = sceIoOpen(path, PSP2_O_RDONLY, 0777)) >= 0) {
 
+		buffer = malloc(FILE_BUF_SIZE);
+		if (buffer == NULL) {
+			client_send_ctrl_msg(client, "550 Could not allocate memory.\n");
+			return;
+		}
+
 		client_open_data_connection(client);
 		client_send_ctrl_msg(client, "150 Opening Image mode data transfer.\n");
 
-		while ((bytes_read = sceIoRead (fd, buffer, sizeof(buffer))) > 0) {
+		while ((bytes_read = sceIoRead (fd, buffer, FILE_BUF_SIZE)) > 0) {
 			sceNetSend(client->data_sockfd, buffer, bytes_read, 0);
 		}
 
 		sceIoClose(fd);
+		free(buffer);
 		client_send_ctrl_msg(client, "226 Transfer completed.\n");
 		client_close_data_connection(client);
 
@@ -344,7 +353,7 @@ static void cmd_RETR_func(ClientInfo *client)
 
 static void receive_file(ClientInfo *client, const char *path)
 {
-	unsigned char buffer[4*1024];
+	unsigned char *buffer;
 	SceUID fd;
 	unsigned int bytes_recv;
 
@@ -352,14 +361,21 @@ static void receive_file(ClientInfo *client, const char *path)
 
 	if ((fd = sceIoOpen(path, PSP2_O_CREAT | PSP2_O_WRONLY | PSP2_O_TRUNC, 0777)) >= 0) {
 
+		buffer = malloc(FILE_BUF_SIZE);
+		if (buffer == NULL) {
+			client_send_ctrl_msg(client, "550 Could not allocate memory.\n");
+			return;
+		}
+
 		client_open_data_connection(client);
 		client_send_ctrl_msg(client, "150 Opening Image mode data transfer.\n");
 
-		while ((bytes_recv = sceNetRecv(client->data_sockfd, buffer, sizeof(buffer), 0)) > 0) {
+		while ((bytes_recv = sceNetRecv(client->data_sockfd, buffer, FILE_BUF_SIZE, 0)) > 0) {
 			sceIoWrite(fd, buffer, bytes_recv);
 		}
 
 		sceIoClose(fd);
+		free(buffer);
 		client_send_ctrl_msg(client, "226 Transfer completed.\n");
 		client_close_data_connection(client);
 
@@ -385,6 +401,62 @@ static void cmd_STOR_func(ClientInfo *client)
 	receive_file(client, retr_path);
 }
 
+static void delete_file(ClientInfo *client, const char *path)
+{
+	DEBUG("Deleting: %s\n", path);
+
+	if (sceIoRemove(path) >= 0) {
+		client_send_ctrl_msg(client, "226 Delete completed.\n");
+	} else {
+		client_send_ctrl_msg(client, "550 Could not delete.\n");
+	}
+}
+
+static void cmd_DELE_func(ClientInfo *client)
+{
+	char cmd_path[PATH_MAX];
+	char retr_path[PATH_MAX];
+
+	sscanf(client->recv_buffer, "%*[^ ] %[^\r\n\t]", cmd_path);
+
+	if (cmd_path[0] != '/') { /* The file is relative to current dir */
+		/* Append the file to the current path */
+		sprintf(retr_path, "%s/%s", client->cur_path, cmd_path);
+	} else {
+		/* Add "pss0:" to the file */
+		sprintf(retr_path, "pss0:%s", cmd_path);
+	}
+	delete_file(client, retr_path);
+}
+
+static void delete_dir(ClientInfo *client, const char *path)
+{
+	DEBUG("Deleting: %s\n", path);
+
+	if (sceIoRmdir(path) >= 0) {
+		client_send_ctrl_msg(client, "226 Delete completed.\n");
+	} else {
+		client_send_ctrl_msg(client, "550 Could not delete.\n");
+	}
+}
+
+static void cmd_RMD_func(ClientInfo *client)
+{
+	char cmd_path[PATH_MAX];
+	char retr_path[PATH_MAX];
+
+	sscanf(client->recv_buffer, "%*[^ ] %[^\r\n\t]", cmd_path);
+
+	if (cmd_path[0] != '/') { /* The file is relative to current dir */
+		/* Append the file to the current path */
+		sprintf(retr_path, "%s/%s", client->cur_path, cmd_path);
+	} else {
+		/* Add "pss0:" to the file */
+		sprintf(retr_path, "pss0:%s", cmd_path);
+	}
+	delete_dir(client, retr_path);
+}
+
 
 #define add_entry(name) {#name, cmd_##name##_func}
 static cmd_dispatch_entry cmd_dispatch_table[] = {
@@ -400,6 +472,8 @@ static cmd_dispatch_entry cmd_dispatch_table[] = {
 	add_entry(CDUP),
 	add_entry(RETR),
 	add_entry(STOR),
+	add_entry(DELE),
+	add_entry(RMD),
 	{NULL, NULL}
 };
 
