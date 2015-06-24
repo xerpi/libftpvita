@@ -28,6 +28,9 @@ typedef struct {
 	SceNetSockaddrIn addr;
 } ClientInfo;
 
+#define client_sendstr(cl, str) \
+	sceNetSend(cl->sockfd, str, strlen(str) + 1, 0)
+
 static int client_thread(SceSize args, void *argp)
 {
 	char buffer[512];
@@ -35,6 +38,8 @@ static int client_thread(SceSize args, void *argp)
 	ClientInfo *client = (ClientInfo *)argp;
 
 	DEBUG("Client thread %i started!\n", client->num);
+
+	client_sendstr(client, "220 FTPVita Server ready.");
 
 	while (client_threads_run) {
 
