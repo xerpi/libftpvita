@@ -3,7 +3,7 @@
 # based on Cirne's vita-toolchain test Makefile
 #
 
-TARGET = vitahelloworld
+TARGET = FTPVita
 OBJS   = main.o ftp.o console.o draw.o font_data.o
 
 STUBS = libSceLibKernel.a libSceDisplay.a libSceGxm.a libSceSysmem.a \

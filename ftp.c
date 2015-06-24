@@ -39,7 +39,7 @@ static int client_thread(SceSize args, void *argp)
 
 	DEBUG("Client thread %i started!\n", client->num);
 
-	client_sendstr(client, "220 FTPVita Server ready.");
+	client_sendstr(client, "220 FTPVita Server ready.\n");
 
 	while (client_threads_run) {
 
