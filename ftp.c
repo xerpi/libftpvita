@@ -46,9 +46,21 @@ static void cmd_USER_func(ClientInfo *client)
 	client_sendstr(client, "331 Username OK, need password b0ss.\n");
 }
 
+static void cmd_PASS_func(ClientInfo *client)
+{
+	client_sendstr(client, "230 User logged in!\n");
+}
+
+static void cmd_QUIT_func(ClientInfo *client)
+{
+	client_sendstr(client, "221 Goodbye senpai :'(\n");
+}
+
 #define add_entry(name) {#name, cmd_##name##_func}
 static cmd_dispatch_entry cmd_dispatch_table[] = {
 	add_entry(USER),
+	add_entry(PASS),
+	add_entry(QUIT),
 	{NULL, NULL}
 };
 
@@ -82,11 +94,11 @@ static int client_thread(SceSize args, void *argp)
 			INFO("Received %i bytes from client number %i:\n\t> %s",
 				client->n_recv, client->num, client->recv_buffer);
 
-			/* Wait 1 ms before sending any data */
-			sceKernelDelayThread(1000);
-
 			/* The command are the first chars until the first space */
 			sscanf(client->recv_buffer, "%s", cmd);
+
+			/* Wait 1 ms before sending any data */
+			sceKernelDelayThread(1*1000);
 
 			if ((dispatch_func = get_dispatch_func(cmd))) {
 				dispatch_func(client);
@@ -180,7 +192,7 @@ static int server_thread(SceSize args, void *argp)
 
 			SceUID client_thid = sceKernelCreateThread(
 				client_thread_name, client_thread,
-				0x10000100, 0x100000, 0, 0, NULL);
+				0x10000100, 0x10000, 0, 0, NULL);
 
 			DEBUG("Client %i thread UID: 0x%08X\n", number_clients, client_thid);
 
@@ -236,7 +248,7 @@ void ftp_init()
 
 	/* Create server thread */
 	server_thid = sceKernelCreateThread("FTPVita_server_thread",
-		server_thread, 0x10000100, 0x100000, 0, 0, NULL);
+		server_thread, 0x10000100, 0x10000, 0, 0, NULL);
 	DEBUG("Server thread UID: 0x%08X\n", server_thid);
 
 	/* Start the server thread */
