@@ -363,9 +363,11 @@
 					"sscanf": 3965211201,
 					"puts": 1506009457,
 					"sprintf": 1950987097,
+					"snprintf": 2713712134,
 					"vsnprintf": 4270060260,
 					"malloc": 2002390194,
 					"free": 1536931842,
+					"strlen": 2330773619,
 					"strcmp": 458816059,
 					"memalign": 2838904427,
 					"memcpy": 1912979419,
@@ -513,11 +515,34 @@
 			}
 		}
 	},
-	"SceCtrl": {
+	"SceIofilemgr": {
 		"nid": 110,
 		"modules": {
+			"SceIofilemgr": {
+				"nid": 111,
+				"kernel": false,
+				"functions": {
+					"sceIoClose": 3339421830,
+					"sceIoDclose": 1110057498,
+					"sceIoGetPriority": 4070863521,
+					"sceIoGetProcessDefaultPriority": 231010747,
+					"sceIoGetThreadDefaultPriority": 2708917507,
+					"sceIoLseek32": 1227172763,
+					"sceIoRead": 4256375443,
+					"sceIoSetPriority": 347264364,
+					"sceIoSetProcessDefaultPriority": 2133506991,
+					"sceIoSetThreadDefaultPriority": 1227956488,
+					"sceIoSyncByFd": 374419289,
+					"sceIoWrite": 888133750
+				}
+			}
+		}
+	},
+	"SceCtrl": {
+		"nid": 112,
+		"modules": {
 			"SceCtrl": {
-				"nid": 11,
+				"nid": 113,
 				"kernel": false,
 				"functions": {
 					"sceCtrlPeekBufferPositive": 2848181974,

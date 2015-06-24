@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/syslimits.h>
 
 #include <psp2/kernel/threadmgr.h>
 
@@ -21,14 +22,30 @@ static int server_thread_run;
 static int client_threads_run;
 static int number_clients = 0;
 
+typedef enum {
+	FTP_DATA_CONNECTION_NONE,
+	FTP_DATA_CONNECTION_ACTIVE,
+	FTP_DATA_CONNECTION_PASSIVE,
+} DataConnectionType;
+
 typedef struct {
+	/* Client number */
 	int num;
+	/* Thread UID */
 	SceUID thid;
+	/* Control connection socket FD */
 	int ctrl_sockfd;
+	/* Data connection attributes */
 	int data_sockfd;
+	DataConnectionType data_con_type;
+	SceNetSockaddrIn data_sockaddr;
+	/* Remote client net info */
 	SceNetSockaddrIn addr;
+	/* Receive buffer attributes */
 	int n_recv;
 	char recv_buffer[512];
+	/* Current working directory */
+	char cur_path[PATH_MAX];
 } ClientInfo;
 
 typedef void (*cmd_dispatch_func)(ClientInfo *client);
@@ -38,81 +55,180 @@ typedef struct {
 	cmd_dispatch_func func;
 } cmd_dispatch_entry;
 
-#define client_sendstr_ctrl(cl, str) \
+#define client_send_ctrl_msg(cl, str) \
 	sceNetSend(cl->ctrl_sockfd, str, strlen(str), 0)
 
+#define client_send_data_msg(cl, str) \
+	sceNetSend(cl->data_sockfd, str, strlen(str), 0)
 
 static void cmd_USER_func(ClientInfo *client)
 {
-	client_sendstr_ctrl(client, "331 Username OK, need password b0ss.\n");
+	client_send_ctrl_msg(client, "331 Username OK, need password b0ss.\n");
 }
 
 static void cmd_PASS_func(ClientInfo *client)
 {
-	client_sendstr_ctrl(client, "230 User logged in!\n");
+	client_send_ctrl_msg(client, "230 User logged in!\n");
 }
 
 static void cmd_QUIT_func(ClientInfo *client)
 {
-	client_sendstr_ctrl(client, "221 Goodbye senpai :'(\n");
+	client_send_ctrl_msg(client, "221 Goodbye senpai :'(\n");
 }
 
 static void cmd_SYST_func(ClientInfo *client)
 {
-	client_sendstr_ctrl(client, "215 UNIX Type: L8\n");
+	client_send_ctrl_msg(client, "215 UNIX Type: L8\n");
 }
 
 void cmd_PORT_func(ClientInfo *client)
 {
-	int ret;
-	unsigned char active_ip[4];
+	unsigned char data_ip[4];
 	unsigned char porthi, portlo;
-	unsigned short active_port;
+	unsigned short data_port;
 	char ip_str[16];
-	SceNetInAddr active_addr;
-	SceNetSockaddrIn active_sockaddr;
+	SceNetInAddr data_addr;
 
 	sscanf(client->recv_buffer, "%*s %hhu,%hhu,%hhu,%hhu,%hhu,%hhu",
-		&active_ip[0], &active_ip[1], &active_ip[2], &active_ip[3],
+		&data_ip[0], &data_ip[1], &data_ip[2], &data_ip[3],
 		&porthi, &portlo);
 
-	active_port = portlo + porthi*256;
+	data_port = portlo + porthi*256;
 
 	/* Convert to an X.X.X.X IP string */
 	sprintf(ip_str, "%d.%d.%d.%d",
-		active_ip[0], active_ip[1], active_ip[2], active_ip[3]);
+		data_ip[0], data_ip[1], data_ip[2], data_ip[3]);
 
 	/* Convert the IP to a SceNetInAddr */
-	sceNetInetPton(PSP2_NET_AF_INET, ip_str, &active_addr);
+	sceNetInetPton(PSP2_NET_AF_INET, ip_str, &data_addr);
 
-	DEBUG("PORT connection to client's IP: %s Port: %d\n", ip_str, active_port);
+	DEBUG("PORT connection to client's IP: %s Port: %d\n", ip_str, data_port);
 
-	/* Create active mode socket name */
-	char active_socket_name[64];
-	sprintf(active_socket_name, "FTPVita_client_%i_active_socket",
+	/* Create data mode socket name */
+	char data_socket_name[64];
+	sprintf(data_socket_name, "FTPVita_client_%i_data_socket",
 		client->num);
 
-	/* Create active mode socket */
-	client->data_sockfd = sceNetSocket(active_socket_name,
+	/* Create data mode socket */
+	client->data_sockfd = sceNetSocket(data_socket_name,
 		PSP2_NET_AF_INET,
 		PSP2_NET_SOCK_STREAM,
 		0);
 
-	DEBUG("Client %i active socket fd: %d\n", client->num,
+	DEBUG("Client %i data socket fd: %d\n", client->num,
 		client->data_sockfd);
 
-	/* Fill active mode socket address */
-	active_sockaddr.sin_family = PSP2_NET_AF_INET;
-	active_sockaddr.sin_addr = active_addr;
-	active_sockaddr.sin_port = sceNetHtons(active_port);
+	/* Prepare socket address for the data connection */
+	client->data_sockaddr.sin_family = PSP2_NET_AF_INET;
+	client->data_sockaddr.sin_addr = data_addr;
+	client->data_sockaddr.sin_port = sceNetHtons(data_port);
 
-	/* Connect to the client using the new socket */
-	ret = sceNetConnect(client->data_sockfd, (SceNetSockaddr *)&active_sockaddr,
-		sizeof(active_sockaddr));
-	DEBUG("sceNetConnect(): 0x%08X\n", ret);
+	/* Set the data connection type to active! */
+	client->data_con_type = FTP_DATA_CONNECTION_ACTIVE;
 
-	client_sendstr_ctrl(client, "200 PORT command successful!\n");
+	client_send_ctrl_msg(client, "200 PORT command successful!\n");
 }
+
+static void client_open_data_connection(ClientInfo *client)
+{
+	int ret;
+
+	if (client->data_con_type == FTP_DATA_CONNECTION_ACTIVE) {
+		/* Connect to the client using the data socket */
+		ret = sceNetConnect(client->data_sockfd,
+			(SceNetSockaddr *)&client->data_sockaddr,
+			sizeof(client->data_sockaddr));
+
+		DEBUG("sceNetConnect(): 0x%08X\n", ret);
+	} else {
+		/* Listen from the client using the data socket */
+
+	}
+}
+
+static void client_close_data_connection(ClientInfo *client)
+{
+	sceNetSocketClose(client->data_sockfd);
+	client->data_con_type = FTP_DATA_CONNECTION_NONE;
+}
+
+static const char *num_to_month[] = {
+	"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+	"Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+};
+
+static int gen_list_format(char *out, int n, int dir, unsigned int file_size,
+	int month_n, int day_n, int hour, int minute, const char *filename)
+{
+	return snprintf(out, n,
+		"%c%s 1 vita vita %d %s %-2d %02d:%02d %s\n",
+		dir ? 'd' : '-',
+		dir ? "rwxr-xr-x" : "rw-r--r--",
+		file_size,
+		num_to_month[(month_n-1)%12],
+		day_n,
+		hour,
+		minute,
+		filename);
+}
+
+
+static void send_LIST(ClientInfo *client, const char *path)
+{
+	char buffer[512];
+	SceUID dir;
+	SceIoDirent dirent;
+
+	client_send_ctrl_msg(client, "150 Opening ASCII mode data transfer for LIST\n");
+
+	client_open_data_connection(client);
+
+	dir = sceIoDopen(path);
+	memset(&dirent, 0, sizeof(dirent));
+
+	while (sceIoDread(dir, &dirent) > 0) {
+		gen_list_format(buffer, sizeof(buffer),
+			FIO_S_ISDIR(dirent.d_stat.st_mode),
+			dirent.d_stat.st_size,
+			dirent.d_stat.st_ctime.month,
+			dirent.d_stat.st_ctime.day,
+			dirent.d_stat.st_ctime.hour,
+			dirent.d_stat.st_ctime.minute,
+			dirent.d_name);
+
+		client_send_data_msg(client, buffer);
+		memset(&dirent, 0, sizeof(dirent));
+		memset(buffer, 0, sizeof(buffer));
+	}
+
+	sceIoDclose(dir);
+
+	DEBUG("Done sending LIST\n");
+
+	client_close_data_connection(client);
+	client_send_ctrl_msg(client, "226 Transfer complete.\n");
+}
+
+void cmd_LIST_func(ClientInfo *client)
+{
+	char list_path[PATH_MAX];
+
+	int n = sscanf(client->recv_buffer, "%*s %[^\r\n\t]", list_path);
+
+	if (n > 0) {  /* Client specified a path */
+		send_LIST(client, list_path);
+	} else {      /* Use current path */
+		send_LIST(client, client->cur_path);
+	}
+}
+
+void cmd_PWD_func(ClientInfo *client)
+{
+	char msg[PATH_MAX];
+	sprintf(msg, "257 \"%s\" is the current directory.\n", client->cur_path);
+	client_send_ctrl_msg(client, msg);
+}
+
 
 #define add_entry(name) {#name, cmd_##name##_func}
 static cmd_dispatch_entry cmd_dispatch_table[] = {
@@ -121,6 +237,8 @@ static cmd_dispatch_entry cmd_dispatch_table[] = {
 	add_entry(QUIT),
 	add_entry(SYST),
 	add_entry(PORT),
+	add_entry(LIST),
+	add_entry(PWD),
 	{NULL, NULL}
 };
 
@@ -143,7 +261,7 @@ static int client_thread(SceSize args, void *argp)
 
 	DEBUG("Client thread %i started!\n", client->num);
 
-	client_sendstr_ctrl(client, "220 FTPVita Server ready.\n");
+	client_send_ctrl_msg(client, "220 FTPVita Server ready.\n");
 
 	while (client_threads_run) {
 
@@ -163,7 +281,7 @@ static int client_thread(SceSize args, void *argp)
 			if ((dispatch_func = get_dispatch_func(cmd))) {
 				dispatch_func(client);
 			} else {
-				client_sendstr_ctrl(client, "502 Sorry, command not implemented. :(\n");
+				client_send_ctrl_msg(client, "502 Sorry, command not implemented. :(\n");
 			}
 
 
@@ -177,7 +295,11 @@ static int client_thread(SceSize args, void *argp)
 	}
 
 	sceNetSocketClose(client->ctrl_sockfd);
-	sceNetSocketClose(client->data_sockfd);
+
+	/* If there's an open data connection, close it */
+	if (client->data_con_type != FTP_DATA_CONNECTION_NONE) {
+		sceNetSocketClose(client->data_sockfd);
+	}
 
 	DEBUG("Client thread %i exiting!\n", client->num);
 
@@ -262,6 +384,8 @@ static int server_thread(SceSize args, void *argp)
 			clinfo->num = number_clients;
 			clinfo->thid = client_thid;
 			clinfo->ctrl_sockfd = client_sockfd;
+			clinfo->data_con_type = FTP_DATA_CONNECTION_NONE;
+			strcpy(clinfo->cur_path, "pss0:/top/Documents");
 			memcpy(&clinfo->addr, &clientaddr, sizeof(clinfo->addr));
 
 			/* Start the client thread */

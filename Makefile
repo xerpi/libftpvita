@@ -8,7 +8,7 @@ OBJS   = main.o ftp.o console.o draw.o font_data.o
 
 STUBS = libSceLibKernel.a libSceDisplay.a libSceGxm.a libSceSysmem.a \
 	libSceThreadmgr.a libSceLibc.a libSceNet.a libSceNetCtl.a \
-	libSceCtrl.a
+	libSceIofilemgr.a libSceCtrl.a
 
 LIBS =
 
