@@ -47,8 +47,9 @@ static int client_thread(SceSize args, void *argp)
 
 		n_recv = sceNetRecv(client->sockfd, buffer, sizeof(buffer), 0);
 		if (n_recv > 0) {
-			INFO("Received %i bytes from client number %i:\n\t%s\n",
+			INFO("Received %i bytes from client number %i:\n\t> %s",
 				n_recv, client->num, buffer);
+
 		} else if (n_recv == 0) {
 			/* Value 0 means connection closed */
 			INFO("Connection closed by the client %i\n", client->num);

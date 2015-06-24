@@ -52,10 +52,7 @@ void console_putc(char c)
 	if (c == '\n') {
 		cns_y += 20;
 		cns_x = 10;
-	} else if (c == '\r'){
-		cns_x = 10;
-		draw_rectangle(0, cns_y, SCREEN_W, 20, BLACK);
-	} else if (c == '\t'){
+	} else if (c == '\t') {
 		cns_x += 16*4;
 	} else if (c >= ' ' && c <= 126) {
 		font_draw_char(cns_x, cns_y, cns_color, c);

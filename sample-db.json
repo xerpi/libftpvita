@@ -360,6 +360,7 @@
 				"kernel":false,
 				"functions": {
 					"printf": 2583709312,
+					"sscanf": 3965211201,
 					"puts": 1506009457,
 					"sprintf": 1950987097,
 					"vsnprintf": 4270060260,
