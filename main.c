@@ -27,9 +27,9 @@ int _start()
 	init_video();
 	console_init();
 
-	console_set_color(CYAN);
+	console_set_color(PURP);
 	INFO("FTPVita by xerpi\n");
-	console_set_color(MAHO);
+	console_set_color(CYAN);
 	INFO("Press START to exit\n");
 	console_set_color(WHITE);
 

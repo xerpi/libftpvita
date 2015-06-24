@@ -17,7 +17,7 @@
 #define BLUE  RGBA8(0,   0,   255, 255)
 #define CYAN  RGBA8(0,   255, 255, 255)
 #define LIME  RGBA8(50,  205, 50,  255)
-#define MAHO  RGBA8(192,  64, 0,   255)
+#define PURP  RGBA8(147, 112, 219, 255)
 #define WHITE RGBA8(255, 255, 255, 255)
 #define BLACK RGBA8(0,   0,   0,   255)
 

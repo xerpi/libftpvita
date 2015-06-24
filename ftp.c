@@ -502,7 +502,7 @@ static int client_thread(SceSize args, void *argp)
 			DEBUG("Received %i bytes from client number %i:\n",
 				client->n_recv, client->num);
 
-			INFO("\t> %s\n", client->recv_buffer);
+			INFO("\t> %s", client->recv_buffer);
 
 			/* The command are the first chars until the first space */
 			sscanf(client->recv_buffer, "%s", cmd);
