@@ -30,20 +30,29 @@ typedef struct {
 
 static int client_thread(SceSize args, void *argp)
 {
-	DEBUG("Client thread started!\n");
-
+	char buffer[512];
+	int n_recv;
 	ClientInfo *client = (ClientInfo *)argp;
+
+	DEBUG("Client thread %i started!\n", client->num);
 
 	while (client_threads_run) {
 
-		sceKernelDelayThread(100*1000);
+		n_recv = sceNetRecv(client->sockfd, buffer, sizeof(buffer), 0);
+		if (n_recv > 0) {
+			INFO("Received %i bytes from client number %i:\n\t%s\n",
+				n_recv, client->num, buffer);
+		}
+
+		sceKernelDelayThread(10*1000);
 	}
 
-
 	sceNetSocketClose(client->sockfd);
+
+	DEBUG("Client thread %i exiting!\n", client->num);
+
 	free(client);
 
-	DEBUG("Client thread exiting!\n");
 	return 0;
 }
 
@@ -127,7 +136,7 @@ static int server_thread(SceSize args, void *argp)
 			memcpy(&clinfo->addr, &clientaddr, sizeof(clinfo->addr));
 
 			/* Start the client thread */
-			sceKernelStartThread(client_thid, 1, clinfo);
+			sceKernelStartThread(client_thid, sizeof(*clinfo), clinfo);
 
 			number_clients++;
 		}

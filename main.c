@@ -38,7 +38,6 @@ int _start()
 
 		if (pad.buttons & PSP2_CTRL_START) break;
 
-
 		sceDisplayWaitVblankStart();
 	}
 
