@@ -310,7 +310,7 @@ static void send_file(ClientInfo *client, const char *path)
 	if ((fd = sceIoOpen(path, PSP2_O_RDONLY, 0777)) >= 0) {
 
 		client_open_data_connection(client);
-		client_send_ctrl_msg(client, "150 Opening Image mode data transfer\n");
+		client_send_ctrl_msg(client, "150 Opening Image mode data transfer.\n");
 
 		while ((bytes_read = sceIoRead (fd, buffer, sizeof(buffer))) > 0) {
 			sceNetSend(client->data_sockfd, buffer, bytes_read, 0);
@@ -325,7 +325,7 @@ static void send_file(ClientInfo *client, const char *path)
 	}
 }
 
-void cmd_RETR_func(ClientInfo *client)
+static void cmd_RETR_func(ClientInfo *client)
 {
 	char cmd_path[PATH_MAX];
 	char retr_path[PATH_MAX];
@@ -342,6 +342,50 @@ void cmd_RETR_func(ClientInfo *client)
 	send_file(client, retr_path);
 }
 
+static void receive_file(ClientInfo *client, const char *path)
+{
+	unsigned char buffer[4*1024];
+	SceUID fd;
+	unsigned int bytes_recv;
+
+	DEBUG("Opening: %s\n", path);
+
+	if ((fd = sceIoOpen(path, PSP2_O_CREAT | PSP2_O_WRONLY | PSP2_O_TRUNC, 0777)) >= 0) {
+
+		client_open_data_connection(client);
+		client_send_ctrl_msg(client, "150 Opening Image mode data transfer.\n");
+
+		while ((bytes_recv = sceNetRecv(client->data_sockfd, buffer, sizeof(buffer), 0)) > 0) {
+			sceIoWrite(fd, buffer, bytes_recv);
+		}
+
+		sceIoClose(fd);
+		client_send_ctrl_msg(client, "226 Transfer completed.\n");
+		client_close_data_connection(client);
+
+	} else {
+		client_send_ctrl_msg(client, "550 File not found.\n");
+	}
+}
+
+static void cmd_STOR_func(ClientInfo *client)
+{
+	char cmd_path[PATH_MAX];
+	char retr_path[PATH_MAX];
+
+	sscanf(client->recv_buffer, "%*[^ ] %[^\r\n\t]", cmd_path);
+
+	if (cmd_path[0] != '/') { /* The file is relative to current dir */
+		/* Append the file to the current path */
+		sprintf(retr_path, "%s/%s", client->cur_path, cmd_path);
+	} else {
+		/* Add "pss0:" to the file */
+		sprintf(retr_path, "pss0:%s", cmd_path);
+	}
+	receive_file(client, retr_path);
+}
+
+
 #define add_entry(name) {#name, cmd_##name##_func}
 static cmd_dispatch_entry cmd_dispatch_table[] = {
 	add_entry(USER),
@@ -355,6 +399,7 @@ static cmd_dispatch_entry cmd_dispatch_table[] = {
 	add_entry(TYPE),
 	add_entry(CDUP),
 	add_entry(RETR),
+	add_entry(STOR),
 	{NULL, NULL}
 };
 
