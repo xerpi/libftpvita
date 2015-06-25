@@ -8,7 +8,9 @@
 #include <sys/syslimits.h>
 
 #include <psp2/kernel/threadmgr.h>
-#include <psp2/io/iofilemgr.h>
+
+#include <psp2/io/fcntl.h>
+#include <psp2/io/dirent.h>
 
 #include <psp2/net/net.h>
 #include <psp2/net/netctl.h>
@@ -191,7 +193,7 @@ static void send_LIST(ClientInfo *client, const char *path)
 
 	while (sceIoDread(dir, &dirent) > 0) {
 		gen_list_format(buffer, sizeof(buffer),
-			FIO_S_ISDIR(dirent.d_stat.st_mode),
+			PSP2_S_ISDIR(dirent.d_stat.st_mode),
 			dirent.d_stat.st_size,
 			dirent.d_stat.st_ctime.month,
 			dirent.d_stat.st_ctime.day,
@@ -462,7 +464,7 @@ static void cmd_MKD_func(ClientInfo *client)
 
 
 #define add_entry(name) {#name, cmd_##name##_func}
-static cmd_dispatch_entry cmd_dispatch_table[] = {
+static const cmd_dispatch_entry cmd_dispatch_table[] = {
 	add_entry(USER),
 	add_entry(PASS),
 	add_entry(QUIT),
@@ -511,7 +513,7 @@ static int client_thread(SceSize args, void *argp)
 			DEBUG("Received %i bytes from client number %i:\n",
 				client->n_recv, client->num);
 
-			INFO("\t> %s", client->recv_buffer);
+			INFO("\t%i> %s", client->num, client->recv_buffer);
 
 			/* The command are the first chars until the first space */
 			sscanf(client->recv_buffer, "%s", cmd);
