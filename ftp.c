@@ -555,7 +555,6 @@ static int server_thread(SceSize args, void *argp)
 	int ret;
 	int server_sockfd;
 	SceNetSockaddrIn serveraddr;
-	SceNetCtlInfo info;
 
 	DEBUG("Server thread started!\n");
 
@@ -579,14 +578,6 @@ static int server_thread(SceSize args, void *argp)
 	/* Start listening */
 	ret = sceNetListen(server_sockfd, 128);
 	DEBUG("sceNetListen(): 0x%08X\n", ret);
-
-	/* Get IP address */
-	ret = sceNetCtlInetGetInfo(PSP2_NETCTL_INFO_GET_IP_ADDRESS, &info);
-	DEBUG("sceNetCtlInetGetInfo(): 0x%08X\n", ret);
-
-	console_set_color(LIME);
-	INFO("PSVita listening on IP %s Port %i\n", info.ip_address, FTP_PORT);
-	console_set_color(WHITE);
 
 	while (server_thread_run) {
 
@@ -649,10 +640,11 @@ static int server_thread(SceSize args, void *argp)
 }
 
 
-void ftp_init()
+void ftp_init(char *vita_ip, unsigned short int *vita_port)
 {
 	int ret;
 	SceNetInitParam initparam;
+	SceNetCtlInfo info;
 
 	if (ftp_initialized) {
 		return;
@@ -674,6 +666,14 @@ void ftp_init()
 	/* Init NetCtl */
 	ret = sceNetCtlInit();
 	DEBUG("sceNetCtlInit(): 0x%08X\n", ret);
+
+	/* Get IP address */
+	ret = sceNetCtlInetGetInfo(PSP2_NETCTL_INFO_GET_IP_ADDRESS, &info);
+	DEBUG("sceNetCtlInetGetInfo(): 0x%08X\n", ret);
+
+	/* Return data */
+	strcpy(vita_ip, info.ip_address);
+	*vita_port = FTP_PORT;
 
 	/* Create server thread */
 	server_thid = sceKernelCreateThread("FTPVita_server_thread",
