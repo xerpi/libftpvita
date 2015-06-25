@@ -5,11 +5,12 @@
 #include <stdio.h>
 #include <stdarg.h>
 
+#include <psp2/kernel/threadmgr.h>
 #include <psp2/kernel/error.h>
 
 #include "console.h"
-#include "missing.h"
 
+static int top_margin = 10;
 static int cns_x = 0, cns_y = 0;
 static uint32_t cns_color = WHITE;
 static int console_initialzed = 0;
@@ -41,7 +42,7 @@ void console_fini()
 void console_reset()
 {
 	cns_x = 10;
-	cns_y = 10;
+	cns_y = top_margin;
 }
 
 void console_putc(char c)
@@ -63,7 +64,7 @@ void console_putc(char c)
 		cns_x = 10;
 	}
 	if (cns_y >= (SCREEN_H-16)) {
-		cns_y = 10;
+		cns_y = top_margin;
 	}
 	if (cns_y != last_y) {
 		draw_rectangle(0, cns_y, SCREEN_W, 20, BLACK);
@@ -114,7 +115,12 @@ void console_set_color(uint32_t color)
 	cns_color = color;
 }
 
-void console_set_y(int new_y)
+int console_get_y()
 {
-	cns_y = new_y;
+	return cns_y;
+}
+
+void console_set_top_margin(int new_top_margin)
+{
+	top_margin = new_top_margin;
 }

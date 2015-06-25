@@ -8,11 +8,12 @@
 #include <sys/syslimits.h>
 
 #include <psp2/kernel/threadmgr.h>
+#include <psp2/io/iofilemgr.h>
 
-#include "net.h"
-#include "netctl.h"
+#include <psp2/net/net.h>
+#include <psp2/net/netctl.h>
+
 #include "console.h"
-#include "missing.h"
 
 #define FTP_PORT 1337
 #define NET_INIT_SIZE 0x4000

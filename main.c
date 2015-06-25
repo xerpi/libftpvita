@@ -2,23 +2,11 @@
  * Copyright (c) 2015 Sergi Granell (xerpi)
  */
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <malloc.h>
-#include <sys/time.h>
-
-#include <psp2/ctrl.h>
-#include <psp2/touch.h>
 #include <psp2/display.h>
-#include <psp2/gxm.h>
-#include <psp2/types.h>
-#include <psp2/moduleinfo.h>
-#include <psp2/kernel/processmgr.h>
+#include <psp2/ctrl.h>
 
 #include "utils.h"
 #include "console.h"
-#include "net.h"
 #include "ftp.h"
 
 
@@ -32,6 +20,8 @@ int _start()
 	console_set_color(CYAN);
 	INFO("Press START to exit\n");
 	console_set_color(WHITE);
+
+	console_set_top_margin(console_get_y() + 20);
 
 	ftp_init();
 
