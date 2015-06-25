@@ -163,7 +163,7 @@ static int gen_list_format(char *out, int n, int dir, unsigned int file_size,
 	int month_n, int day_n, int hour, int minute, const char *filename)
 {
 	return snprintf(out, n,
-		"%c%s 1 vita vita %d %s %-2d %02d:%02d %s\n",
+		"%c%s 1 vita vita %d %s %-2d %02d:%02d %s\r\n",
 		dir ? 'd' : '-',
 		dir ? "rwxr-xr-x" : "rw-r--r--",
 		file_size,
@@ -181,7 +181,7 @@ static void send_LIST(ClientInfo *client, const char *path)
 	SceUID dir;
 	SceIoDirent dirent;
 
-	client_send_ctrl_msg(client, "150 Opening ASCII mode data transfer for LIST\n");
+	client_send_ctrl_msg(client, "150 Opening ASCII mode data transfer for LIST.\n");
 
 	client_open_data_connection(client);
 
