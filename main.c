@@ -4,13 +4,15 @@
 
 #include <psp2/display.h>
 #include <psp2/ctrl.h>
+#include <psp2/moduleinfo.h>
 
 #include "utils.h"
 #include "console.h"
 #include "ftp.h"
 
+PSP2_MODULE_INFO(0, 0, "FTPVita");
 
-int _start()
+int main()
 {
 	char vita_ip[16];
 	unsigned short int vita_port;
@@ -33,10 +35,10 @@ int _start()
 	console_set_top_margin(10 + 20*3);
 
 	/* Input variables */
-	CtrlData pad;
+	SceCtrlData pad;
 
 	while (1) {
-		sceCtrlPeekBufferPositive(0, (SceCtrlData *)&pad, 1);
+		sceCtrlPeekBufferPositive(0, &pad, 1);
 
 		if (pad.buttons & PSP2_CTRL_START) break;
 

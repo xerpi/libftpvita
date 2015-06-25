@@ -6,44 +6,33 @@
 TARGET = FTPVita
 OBJS   = main.o ftp.o console.o draw.o font_data.o
 
-STUBS = libSceLibKernel.a libSceDisplay.a libSceGxm.a libSceSysmem.a \
-	libSceThreadmgr.a libSceLibc.a libSceNet.a libSceNetCtl.a \
-	libSceIofilemgr.a libSceCtrl.a
-
-LIBS =
-
-NIDS_DB = sample-db.json
+LIBS = -lc_stub -lSceKernel_stub -lSceDisplay_stub -lSceGxm_stub	\
+	-lSceNet_stub -lSceNetCtl_stub -lSceCtrl_stub
 
 PREFIX  = $(DEVKITARM)/bin/arm-none-eabi
 CC      = $(PREFIX)-gcc
 READELF = $(PREFIX)-readelf
 OBJDUMP = $(PREFIX)-objdump
-CFLAGS  = -Wall -Wno-unused-but-set-variable -nostartfiles -nostdlib -I$(PSP2SDK)/include
+CFLAGS  = -Wall -specs=$(PSP2SDK)/psp2.specs
+ASFLAGS = $(CFLAGS)
 
-STUBS_FULL = $(addprefix stubs/, $(STUBS))
+CFLAGS  += -Wno-unused-but-set-variable
 
-all: $(TARGET).velf
+all: $(TARGET)_fixup.elf
 
 debug: CFLAGS += -DSHOW_DEBUG=1
 debug: all
 
-$(TARGET).velf: $(TARGET).elf
-	vita-elf-create $(TARGET).elf $(TARGET).velf $(NIDS_DB)
+%_fixup.elf: %.elf
+	psp2-fixup -q -S $< $@
 
-$(TARGET).elf: $(OBJS) $(STUBS_FULL)
-	$(CC) -Wl,-q -o $@ $^ $(LIBS) $(CFLAGS)
-
-%.o: %.c
-	$(CC) -c -o $@ $< $(CFLAGS)
-
-$(STUBS_FULL):
-	@mkdir -p stubs
-	vita-libs-gen $(NIDS_DB) stubs/
-	$(MAKE) -C stubs $(notdir $@)
+$(TARGET).elf: $(OBJS)
+	$(CC) $(CFLAGS) $^ $(LIBS) -o $@
 
 clean:
-	@rm -rf $(TARGET).elf $(TARGET).velf $(OBJS) stubs
+	@rm -rf $(TARGET)_fixup.elf $(TARGET).elf $(OBJS)
 
-copy: $(TARGET).velf
-	@cp $(TARGET).velf ~/shared/vitasample.elf
+copy: $(TARGET)_fixup.elf
+	@cp $(TARGET)_fixup.elf ~/shared/vitasample.elf
 	@echo "Copied!"
+
