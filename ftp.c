@@ -157,14 +157,15 @@ static void client_close_data_connection(ClientInfo *client)
 	client->data_con_type = FTP_DATA_CONNECTION_NONE;
 }
 
-static const char *num_to_month[] = {
-	"Jan", "Feb", "Mar", "Apr", "May", "Jun",
-	"Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
-};
-
 static int gen_list_format(char *out, int n, int dir, unsigned int file_size,
 	int month_n, int day_n, int hour, int minute, const char *filename)
 {
+	/* Temporary static const workaround */
+	char *num_to_month[] = {
+		"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+		"Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+	};
+
 	return snprintf(out, n,
 		"%c%s 1 vita vita %d %s %-2d %02d:%02d %s\r\n",
 		dir ? 'd' : '-',
