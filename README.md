@@ -3,7 +3,7 @@ FTP Server for the PSVita.
 
 ## Compiling
 Prerequisites:
-* arm gcc ([devkitARM r44] (http://sourceforge.net/projects/devkitpro/files/devkitARM/) for example)
+* arm gcc ([devkitARM r44] (http://sourceforge.net/projects/devkitpro/files/devkitARM/devkitARM_r44/) for example)
 * [psp2sdk] (https://github.com/173210/psp2sdk)
 
 Once all the prerequisites have been met, you can compile this homebrew by typing:
