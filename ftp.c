@@ -280,24 +280,32 @@ static void cmd_TYPE_func(ClientInfo *client)
 	}
 }
 
-static void dir_up(const char *in, char *out)
+static void dir_up(char *path)
 {
-	const char *pch = strrchr(in, '/');
-	if (pch && pch != in) {
-		size_t s = pch - in;
-		strncpy(out, in, s);
-		out[s] = '\0';
-	} else {
-		strcpy(out, "/");
+	char *pch;
+	size_t len_in = strlen(path);
+	if (len_in == 1) {
+		strcpy(path, "/");
+		return;
+	}
+	if (path[len_in - 1] == '/') {
+		path[len_in - 1] = '\0';
+	}
+	pch = strrchr(path, '/');
+	if (pch) {
+		size_t s = len_in - (pch - path);
+		memset(pch + 1, '\0', s);
 	}
 }
 
 static void cmd_CDUP_func(ClientInfo *client)
 {
-	int s_len = strlen(client->cur_path) + 1;
-	char buf[s_len];
-	memcpy(buf, client->cur_path, s_len);
-	dir_up(buf, client->cur_path);
+	char path[PATH_MAX];
+	/* Path without "pss0:" */
+	const char *normal_path = strchr(client->cur_path, '/');
+	strcpy(path, normal_path);
+	dir_up(path);
+	sprintf(client->cur_path, "pss0:%s", path);
 	client_send_ctrl_msg(client, "200 Command okay.\n");
 }
 
@@ -334,7 +342,7 @@ static void send_file(ClientInfo *client, const char *path)
 	}
 }
 
-/* This functions generated a PSVita valid path with the input
+/* This function generates a PSVita valid path with the input path
  * from RETR, STOR, DELE, RMD and MKD commands */
 static void gen_filepath(ClientInfo *client, char *dest_path)
 {
