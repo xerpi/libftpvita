@@ -559,10 +559,10 @@ static void client_list_delete(ClientInfo *client)
 static void client_list_close_sockets()
 {
 	/* Iterate over the client list and close their sockets */
-	ClientInfo *it = client_list;
-
 	unsigned int mtx_timeout = 0xFFFFFFFF;
 	sceKernelLockMutex(client_list_mtx, 1, &mtx_timeout);
+
+	ClientInfo *it = client_list;
 
 	while (it) {
 		sceNetSocketClose(it->ctrl_sockfd);
