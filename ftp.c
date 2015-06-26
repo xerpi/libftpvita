@@ -18,11 +18,12 @@
 #include "console.h"
 
 #define FTP_PORT 1337
-#define NET_INIT_SIZE 0x4000
+#define NET_INIT_SIZE 1*1024*1024
 #define FILE_BUF_SIZE 4*1024*1024
 
 #define FTP_DEFAULT_PATH "cache0:/"
 
+static void *net_memory = NULL;
 static int ftp_initialized = 0;
 static SceUID server_thid;
 static int server_thread_run;
@@ -676,8 +677,9 @@ void ftp_init(char *vita_ip, unsigned short int *vita_port)
 
 	/* Init Net */
 	if (sceNetShowNetstat() == PSP2_NET_ERROR_ENOTINIT) {
+		net_memory = malloc(NET_INIT_SIZE);
 
-		initparam.memory = malloc(NET_INIT_SIZE);
+		initparam.memory = net_memory;
 		initparam.size = NET_INIT_SIZE;
 		initparam.flags = 0;
 
@@ -722,6 +724,10 @@ void ftp_fini()
 		sceKernelDelayThread(50*1000);
 		sceNetCtlTerm();
 		sceNetTerm();
+		if (net_memory) {
+			free(net_memory);
+			net_memory = NULL;
+		}
 	}
 }
 
