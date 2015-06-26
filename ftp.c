@@ -185,11 +185,16 @@ static void send_LIST(ClientInfo *client, const char *path)
 	SceUID dir;
 	SceIoDirent dirent;
 
+	dir = sceIoDopen(path);
+	if (dir < 0) {
+		client_send_ctrl_msg(client, "550 Invalid directory.\n");
+		return;
+	}
+
 	client_send_ctrl_msg(client, "150 Opening ASCII mode data transfer for LIST.\n");
 
 	client_open_data_connection(client);
 
-	dir = sceIoDopen(path);
 	memset(&dirent, 0, sizeof(dirent));
 
 	while (sceIoDread(dir, &dirent) > 0) {
@@ -240,23 +245,34 @@ static void cmd_PWD_func(ClientInfo *client)
 
 static void cmd_CWD_func(ClientInfo *client)
 {
+	char cmd_path[PATH_MAX];
 	char path[PATH_MAX];
-	int n = sscanf(client->recv_buffer, "%*s %[^\r\n\t]", path);
+	SceUID pd;
+	int n = sscanf(client->recv_buffer, "%*s %[^\r\n\t]", cmd_path);
 
 	if (n < 1) {
 		client_send_ctrl_msg(client, "500 Syntax error, command unrecognized.\n");
 	} else {
-		if (path[0] != '/') { /* Change dir relative to current dir */
-			strcat(client->cur_path, path);
+		if (cmd_path[0] != '/') { /* Change dir relative to current dir */
+			strcat(path, cmd_path);
 		} else {
-			sprintf(client->cur_path, "pss0:%s", path);
+			sprintf(path, "pss0:%s", cmd_path);
 		}
 
 		/* If there isn't "/" at the end, add it */
-		if (client->cur_path[strlen(client->cur_path) - 1] != '/') {
-			strcat(client->cur_path, "/");
+		if (path[strlen(path) - 1] != '/') {
+			strcat(path, "/");
 		}
 
+		/* Check if the path exists */
+		pd = sceIoDopen(path);
+		if (pd < 0) {
+			client_send_ctrl_msg(client, "550 Invalid directory.\n");
+			return;
+		}
+		sceIoDclose(pd);
+
+		strcpy(client->cur_path, path);
 		client_send_ctrl_msg(client, "250 Requested file action okay, completed.\n");
 	}
 }
@@ -429,10 +445,13 @@ static void cmd_DELE_func(ClientInfo *client)
 
 static void delete_dir(ClientInfo *client, const char *path)
 {
+	int ret;
 	DEBUG("Deleting: %s\n", path);
-
-	if (sceIoRmdir(path) >= 0) {
+	ret = sceIoRmdir(path);
+	if (ret >= 0) {
 		client_send_ctrl_msg(client, "226 Directory deleted.\n");
+	} else if (ret == 0x8001005A) { /* DIRECTORY_IS_NOT_EMPTY */
+		client_send_ctrl_msg(client, "550 Directory is not empty.\n");
 	} else {
 		client_send_ctrl_msg(client, "550 Could not delete the directory.\n");
 	}
