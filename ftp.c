@@ -23,20 +23,13 @@
 
 #define FTP_DEFAULT_PATH "cache0:/"
 
-static void *net_memory = NULL;
-static int ftp_initialized = 0;
-static SceUID server_thid;
-static int server_thread_run;
-static int client_threads_run;
-static int number_clients = 0;
-
 typedef enum {
 	FTP_DATA_CONNECTION_NONE,
 	FTP_DATA_CONNECTION_ACTIVE,
 	FTP_DATA_CONNECTION_PASSIVE,
 } DataConnectionType;
 
-typedef struct {
+typedef struct ClientInfo {
 	/* Client number */
 	int num;
 	/* Thread UID */
@@ -54,6 +47,9 @@ typedef struct {
 	char recv_buffer[512];
 	/* Current working directory */
 	char cur_path[PATH_MAX];
+	/* Client list */
+	struct ClientInfo *next;
+	struct ClientInfo *prev;
 } ClientInfo;
 
 typedef void (*cmd_dispatch_func)(ClientInfo *client);
@@ -62,6 +58,14 @@ typedef struct {
 	const char *cmd;
 	cmd_dispatch_func func;
 } cmd_dispatch_entry;
+
+static void *net_memory = NULL;
+static int ftp_initialized = 0;
+static SceUID server_thid;
+static int server_sockfd;
+static int number_clients = 0;
+static ClientInfo *client_list = NULL;
+static SceUID client_list_mtx;
 
 #define client_send_ctrl_msg(cl, str) \
 	sceNetSend(cl->ctrl_sockfd, str, strlen(str), 0)
@@ -517,6 +521,57 @@ static cmd_dispatch_func get_dispatch_func(const char *cmd)
 	return NULL;
 }
 
+static void client_list_add(ClientInfo *client)
+{
+	/* Add the client at the front of the client list */
+	unsigned int mtx_timeout = 0xFFFFFFFF;
+	sceKernelLockMutex(client_list_mtx, 1, &mtx_timeout);
+
+	if (client_list == NULL) { /* List is empty */
+		client_list = client;
+		client->prev = NULL;
+		client->next = NULL;
+	} else {
+		client->next = client_list;
+		client->prev = NULL;
+		client_list = client;
+	}
+
+	sceKernelUnlockMutex(client_list_mtx, 1);
+}
+
+static void client_list_delete(ClientInfo *client)
+{
+	/* Remove the client from the client list */
+	unsigned int mtx_timeout = 0xFFFFFFFF;
+	sceKernelLockMutex(client_list_mtx, 1, &mtx_timeout);
+
+	if (client->prev) {
+		client->prev->next = client->next;
+	}
+	if (client->next) {
+		client->next->prev = client->prev;
+	}
+
+	sceKernelUnlockMutex(client_list_mtx, 1);
+}
+
+static void client_list_close_sockets()
+{
+	/* Iterate over the client list and close their sockets */
+	ClientInfo *it = client_list;
+
+	unsigned int mtx_timeout = 0xFFFFFFFF;
+	sceKernelLockMutex(client_list_mtx, 1, &mtx_timeout);
+
+	while (it) {
+		sceNetSocketClose(it->ctrl_sockfd);
+		it = it->next;
+	}
+
+	sceKernelUnlockMutex(client_list_mtx, 1);
+}
+
 static int client_thread(SceSize args, void *argp)
 {
 	char cmd[16];
@@ -527,7 +582,7 @@ static int client_thread(SceSize args, void *argp)
 
 	client_send_ctrl_msg(client, "220 FTPVita Server ready.\n");
 
-	while (client_threads_run) {
+	while (1) {
 
 		memset(client->recv_buffer, 0, sizeof(client->recv_buffer));
 
@@ -550,17 +605,19 @@ static int client_thread(SceSize args, void *argp)
 				client_send_ctrl_msg(client, "502 Sorry, command not implemented. :(\n");
 			}
 
-
 		} else if (client->n_recv == 0) {
-			/* Value 0 means connection closed */
+			/* Value 0 means connection closed by the remote peer */
 			INFO("Connection closed by the client %i.\n", client->num);
+			/* Close the client's socket */
+			sceNetSocketClose(client->ctrl_sockfd);
+			/* Delete itself from the client list */
+			client_list_delete(client);
+			break;
+		} else {
+			/* A negative value means error */
 			break;
 		}
-
-		sceKernelDelayThread(10*1000);
 	}
-
-	sceNetSocketClose(client->ctrl_sockfd);
 
 	/* If there's an open data connection, close it */
 	if (client->data_con_type != FTP_DATA_CONNECTION_NONE) {
@@ -571,14 +628,13 @@ static int client_thread(SceSize args, void *argp)
 
 	free(client);
 
+	sceKernelExitDeleteThread(0);
 	return 0;
 }
-
 
 static int server_thread(SceSize args, void *argp)
 {
 	int ret;
-	int server_sockfd;
 	SceNetSockaddrIn serveraddr;
 
 	DEBUG("Server thread started!\n");
@@ -604,7 +660,7 @@ static int server_thread(SceSize args, void *argp)
 	ret = sceNetListen(server_sockfd, 128);
 	DEBUG("sceNetListen(): 0x%08X\n", ret);
 
-	while (server_thread_run) {
+	while (1) {
 
 		/* Accept clients */
 		SceNetSockaddrIn clientaddr;
@@ -614,7 +670,7 @@ static int server_thread(SceSize args, void *argp)
 		DEBUG("Waiting for incoming connections...\n");
 
 		client_sockfd = sceNetAccept(server_sockfd, (SceNetSockaddr *)&clientaddr, &addrlen);
-		if (client_sockfd > 0) {
+		if (client_sockfd >= 0) {
 
 			DEBUG("New connection, client fd: 0x%08X\n", client_sockfd);
 
@@ -640,30 +696,35 @@ static int server_thread(SceSize args, void *argp)
 			DEBUG("Client %i thread UID: 0x%08X\n", number_clients, client_thid);
 
 			/* Allocate the ClientInfo struct for the new client */
-			ClientInfo *clinfo = malloc(sizeof(*clinfo));
-			clinfo->num = number_clients;
-			clinfo->thid = client_thid;
-			clinfo->ctrl_sockfd = client_sockfd;
-			clinfo->data_con_type = FTP_DATA_CONNECTION_NONE;
-			strcpy(clinfo->cur_path, FTP_DEFAULT_PATH);
-			memcpy(&clinfo->addr, &clientaddr, sizeof(clinfo->addr));
+			ClientInfo *client = malloc(sizeof(*client));
+			client->num = number_clients;
+			client->thid = client_thid;
+			client->ctrl_sockfd = client_sockfd;
+			client->data_con_type = FTP_DATA_CONNECTION_NONE;
+			strcpy(client->cur_path, FTP_DEFAULT_PATH);
+			memcpy(&client->addr, &clientaddr, sizeof(client->addr));
+
+			/* Add the new client to the client list */
+			client_list_add(client);
 
 			/* Start the client thread */
-			sceKernelStartThread(client_thid, sizeof(*clinfo), clinfo);
+			sceKernelStartThread(client_thid, sizeof(*client), client);
 
 			number_clients++;
+		} else {
+			/* if sceNetAccept returns < 0, it means that the listening
+			 * socket has been closed, this means that we want to
+			 * finish the server thread */
+			DEBUG("Server socket closed, 0x%08X\n", client_sockfd);
+			break;
 		}
-
-
-		sceKernelDelayThread(100*1000);
 	}
 
-	sceNetSocketClose(server_sockfd);
-
 	DEBUG("Server thread exiting!\n");
+
+	sceKernelExitDeleteThread(0);
 	return 0;
 }
-
 
 void ftp_init(char *vita_ip, unsigned short int *vita_port)
 {
@@ -706,9 +767,11 @@ void ftp_init(char *vita_ip, unsigned short int *vita_port)
 		server_thread, 0x10000100, 0x10000, 0, 0, NULL);
 	DEBUG("Server thread UID: 0x%08X\n", server_thid);
 
+	/* Create the client list mutex */
+	client_list_mtx = sceKernelCreateMutex("FTPVita_client_list_mutex", 0, 0, NULL);
+	DEBUG("Client list mutex UID: 0x%08X\n", client_list_mtx);
+
 	/* Start the server thread */
-	client_threads_run = 1;
-	server_thread_run = 1;
 	sceKernelStartThread(server_thid, 0, NULL);
 
 	ftp_initialized = 1;
@@ -717,17 +780,32 @@ void ftp_init(char *vita_ip, unsigned short int *vita_port)
 void ftp_fini()
 {
 	if (ftp_initialized) {
-		server_thread_run = 0;
-		client_threads_run = 0;
-		sceKernelDeleteThread(server_thid);
+		/* In order to "stop" the blocking sceNetAccept,
+		 * we have to close the server socket; this way
+		 * the accept call will return an error */
+		sceNetSocketClose(server_sockfd);
+
+		/* To close the clients we have to do the same:
+		 * we have to iterate over all the clients
+		 * and close their sockets */
+		client_list_close_sockets();
+		client_list = NULL;
+
 		/* UGLY: Give 50 ms for the threads to exit */
 		sceKernelDelayThread(50*1000);
+
+		/* Delete the client list mutex */
+		sceKernelDeleteMutex(client_list_mtx);
+
 		sceNetCtlTerm();
 		sceNetTerm();
+
 		if (net_memory) {
 			free(net_memory);
 			net_memory = NULL;
 		}
+
+		ftp_initialized = 0;
 	}
 }
 
