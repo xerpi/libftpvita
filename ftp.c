@@ -160,8 +160,7 @@ static void client_close_data_connection(ClientInfo *client)
 static int gen_list_format(char *out, int n, int dir, unsigned int file_size,
 	int month_n, int day_n, int hour, int minute, const char *filename)
 {
-	/* Temporary static const workaround */
-	char *num_to_month[] = {
+	static const char num_to_month[][4] = {
 		"Jan", "Feb", "Mar", "Apr", "May", "Jun",
 		"Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 	};
