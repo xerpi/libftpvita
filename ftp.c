@@ -83,6 +83,24 @@ static inline void client_send_data_msg(ClientInfo *client, const char *str)
 	}
 }
 
+static inline int client_send_recv_raw(ClientInfo *client, void *buf, unsigned int len)
+{
+	if (client->data_con_type == FTP_DATA_CONNECTION_ACTIVE) {
+		return sceNetRecv(client->data_sockfd, buf, len, 0);
+	} else {
+		return sceNetRecv(client->pasv_sockfd, buf, len, 0);
+	}
+}
+
+static inline void client_send_data_raw(ClientInfo *client, const void *buf, unsigned int len)
+{
+	if (client->data_con_type == FTP_DATA_CONNECTION_ACTIVE) {
+		sceNetSend(client->data_sockfd, buf, len, 0);
+	} else {
+		sceNetSend(client->pasv_sockfd, buf, len, 0);
+	}
+}
+
 static void cmd_USER_func(ClientInfo *client)
 {
 	client_send_ctrl_msg(client, "331 Username OK, need password b0ss.\n");
@@ -274,9 +292,9 @@ static void send_LIST(ClientInfo *client, const char *path)
 		return;
 	}
 
-	client_open_data_connection(client);
-
 	client_send_ctrl_msg(client, "150 Opening ASCII mode data transfer for LIST.\n");
+
+	client_open_data_connection(client);
 
 	memset(&dirent, 0, sizeof(dirent));
 
@@ -432,7 +450,7 @@ static void send_file(ClientInfo *client, const char *path)
 		client_send_ctrl_msg(client, "150 Opening Image mode data transfer.\n");
 
 		while ((bytes_read = sceIoRead (fd, buffer, FILE_BUF_SIZE)) > 0) {
-			sceNetSend(client->data_sockfd, buffer, bytes_read, 0);
+			client_send_data_raw(client, buffer, bytes_read);
 		}
 
 		sceIoClose(fd);
@@ -487,7 +505,7 @@ static void receive_file(ClientInfo *client, const char *path)
 		client_open_data_connection(client);
 		client_send_ctrl_msg(client, "150 Opening Image mode data transfer.\n");
 
-		while ((bytes_recv = sceNetRecv(client->data_sockfd, buffer, FILE_BUF_SIZE, 0)) > 0) {
+		while ((bytes_recv = client_send_recv_raw(client, buffer, FILE_BUF_SIZE)) > 0) {
 			sceIoWrite(fd, buffer, bytes_recv);
 		}
 
