@@ -40,6 +40,9 @@ typedef struct ClientInfo {
 	int data_sockfd;
 	DataConnectionType data_con_type;
 	SceNetSockaddrIn data_sockaddr;
+	/* PASV mode client socket */
+	SceNetSockaddrIn pasv_sockaddr;
+	int pasv_sockfd;
 	/* Remote client net info */
 	SceNetSockaddrIn addr;
 	/* Receive buffer attributes */
@@ -61,6 +64,7 @@ typedef struct {
 
 static void *net_memory = NULL;
 static int ftp_initialized = 0;
+static SceNetInAddr vita_addr;
 static SceUID server_thid;
 static int server_sockfd;
 static int number_clients = 0;
@@ -70,8 +74,14 @@ static SceUID client_list_mtx;
 #define client_send_ctrl_msg(cl, str) \
 	sceNetSend(cl->ctrl_sockfd, str, strlen(str), 0)
 
-#define client_send_data_msg(cl, str) \
-	sceNetSend(cl->data_sockfd, str, strlen(str), 0)
+static inline void client_send_data_msg(ClientInfo *client, const char *str)
+{
+	if (client->data_con_type == FTP_DATA_CONNECTION_ACTIVE) {
+		sceNetSend(client->data_sockfd, str, strlen(str), 0);
+	} else {
+		sceNetSend(client->pasv_sockfd, str, strlen(str), 0);
+	}
+}
 
 static void cmd_USER_func(ClientInfo *client)
 {
@@ -91,6 +101,64 @@ static void cmd_QUIT_func(ClientInfo *client)
 static void cmd_SYST_func(ClientInfo *client)
 {
 	client_send_ctrl_msg(client, "215 UNIX Type: L8\n");
+}
+
+static void cmd_PASV_func(ClientInfo *client)
+{
+	int ret;
+	char cmd[512];
+	unsigned int namelen;
+	SceNetSockaddrIn picked;
+
+	/* Create data mode socket name */
+	char data_socket_name[64];
+	sprintf(data_socket_name, "FTPVita_client_%i_data_socket",
+		client->num);
+
+	/* Create the data socket */
+	client->data_sockfd = sceNetSocket(data_socket_name,
+		PSP2_NET_AF_INET,
+		PSP2_NET_SOCK_STREAM,
+		0);
+
+	DEBUG("PASV data socket fd: %d\n", client->data_sockfd);
+
+	/* Fill the data socket address */
+	client->data_sockaddr.sin_family = PSP2_NET_AF_INET;
+	client->data_sockaddr.sin_addr.s_addr = sceNetHtonl(PSP2_NET_INADDR_ANY);
+	/* Let the PSVita choose a port */
+	client->data_sockaddr.sin_port = sceNetHtons(0);
+
+	/* Bind the data socket address to the data socket */
+	ret = sceNetBind(client->data_sockfd,
+		(SceNetSockaddr *)&client->data_sockaddr,
+		sizeof(client->data_sockaddr));
+	DEBUG("sceNetBind(): 0x%08X\n", ret);
+
+	/* Start listening */
+	ret = sceNetListen(client->data_sockfd, 128);
+	DEBUG("sceNetListen(): 0x%08X\n", ret);
+
+	/* Get the port that the PSVita has chosen */
+	namelen = sizeof(picked);
+	sceNetGetsockname(client->data_sockfd, (SceNetSockaddr *)&picked,
+		&namelen);
+
+	DEBUG("PASV mode port: 0x%04X\n", picked.sin_port);
+
+	/* Build the command */
+	sprintf(cmd, "227 Entering Passive Mode (%hhu,%hhu,%hhu,%hhu,%hhu,%hhu)\n",
+		(vita_addr.s_addr >> 0) & 0xFF,
+		(vita_addr.s_addr >> 8) & 0xFF,
+		(vita_addr.s_addr >> 16) & 0xFF,
+		(vita_addr.s_addr >> 24) & 0xFF,
+		(picked.sin_port >> 0) & 0xFF,
+		(picked.sin_port >> 8) & 0xFF);
+
+	client_send_ctrl_msg(client, cmd);
+
+	/* Set the data connection type to passive! */
+	client->data_con_type = FTP_DATA_CONNECTION_PASSIVE;
 }
 
 static void cmd_PORT_func(ClientInfo *client)
@@ -144,6 +212,7 @@ static void cmd_PORT_func(ClientInfo *client)
 static void client_open_data_connection(ClientInfo *client)
 {
 	int ret;
+	unsigned int addrlen;
 
 	if (client->data_con_type == FTP_DATA_CONNECTION_ACTIVE) {
 		/* Connect to the client using the data socket */
@@ -153,14 +222,22 @@ static void client_open_data_connection(ClientInfo *client)
 
 		DEBUG("sceNetConnect(): 0x%08X\n", ret);
 	} else {
-		/* Listen from the client using the data socket */
-
+		/* Listen to the client using the data socket */
+		addrlen = sizeof(client->pasv_sockaddr);
+		client->pasv_sockfd = sceNetAccept(client->data_sockfd,
+			(SceNetSockaddr *)&client->pasv_sockaddr,
+			&addrlen);
+		DEBUG("PASV client fd: 0x%08X\n", client->pasv_sockfd);
 	}
 }
 
 static void client_close_data_connection(ClientInfo *client)
 {
 	sceNetSocketClose(client->data_sockfd);
+	/* In passive mode we have to close the client pasv socket too */
+	if (client->data_con_type == FTP_DATA_CONNECTION_PASSIVE) {
+		sceNetSocketClose(client->pasv_sockfd);
+	}
 	client->data_con_type = FTP_DATA_CONNECTION_NONE;
 }
 
@@ -197,9 +274,9 @@ static void send_LIST(ClientInfo *client, const char *path)
 		return;
 	}
 
-	client_send_ctrl_msg(client, "150 Opening ASCII mode data transfer for LIST.\n");
-
 	client_open_data_connection(client);
+
+	client_send_ctrl_msg(client, "150 Opening ASCII mode data transfer for LIST.\n");
 
 	memset(&dirent, 0, sizeof(dirent));
 
@@ -495,6 +572,7 @@ static const cmd_dispatch_entry cmd_dispatch_table[] = {
 	add_entry(PASS),
 	add_entry(QUIT),
 	add_entry(SYST),
+	add_entry(PASV),
 	add_entry(PORT),
 	add_entry(LIST),
 	add_entry(PWD),
@@ -621,6 +699,9 @@ static int client_thread(SceSize args, void *argp)
 	/* If there's an open data connection, close it */
 	if (client->data_con_type != FTP_DATA_CONNECTION_NONE) {
 		sceNetSocketClose(client->data_sockfd);
+		if (client->data_con_type == FTP_DATA_CONNECTION_PASSIVE) {
+			sceNetSocketClose(client->pasv_sockfd);
+		}
 	}
 
 	DEBUG("Client thread %i exiting!\n", client->num);
@@ -760,6 +841,9 @@ void ftp_init(char *vita_ip, unsigned short int *vita_port)
 	/* Return data */
 	strcpy(vita_ip, info.ip_address);
 	*vita_port = FTP_PORT;
+
+	/* Save the IP of PSVita to a global variable */
+	sceNetInetPton(PSP2_NET_AF_INET, info.ip_address, &vita_addr);
 
 	/* Create server thread */
 	server_thid = sceKernelCreateThread("FTPVita_server_thread",
