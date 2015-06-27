@@ -50,6 +50,8 @@ typedef struct ClientInfo {
 	char recv_buffer[512];
 	/* Current working directory */
 	char cur_path[PATH_MAX];
+	/* Rename path */
+	char rename_path[PATH_MAX];
 	/* Client list */
 	struct ClientInfo *next;
 	struct ClientInfo *prev;
@@ -464,7 +466,7 @@ static void send_file(ClientInfo *client, const char *path)
 }
 
 /* This function generates a PSVita valid path with the input path
- * from RETR, STOR, DELE, RMD and MKD commands */
+ * from RETR, STOR, DELE, RMD, MKD, RNFR and RNTO commands */
 static void gen_filepath(ClientInfo *client, char *dest_path)
 {
 	char cmd_path[PATH_MAX];
@@ -583,6 +585,41 @@ static void cmd_MKD_func(ClientInfo *client)
 	create_dir(client, dest_path);
 }
 
+static int file_exists(const char *path)
+{
+	SceIoStat stat;
+	return (sceIoGetstat(path, &stat) >= 0);
+}
+
+static void cmd_RNFR_func(ClientInfo *client)
+{
+	char from_path[PATH_MAX];
+	gen_filepath(client, from_path);
+
+	/* Check if the file exists */
+	if (!file_exists(from_path)) {
+		client_send_ctrl_msg(client, "550 The file doesn't exist.\n");
+		return;
+	}
+	/* The file to be renamed is the received path */
+	strcpy(client->rename_path, from_path);
+	client_send_ctrl_msg(client, "250 I need the destination name b0ss.\n");
+}
+
+static void cmd_RNTO_func(ClientInfo *client)
+{
+	char path_to[PATH_MAX];
+	/* Get the destination filename */
+	gen_filepath(client, path_to);
+
+	DEBUG("Renaming: %s to %s\n", client->rename_path, path_to);
+
+	if (sceIoRename(client->rename_path, path_to) < 0) {
+		client_send_ctrl_msg(client, "550 Error renaming the file.\n");
+	}
+
+	client_send_ctrl_msg(client, "226 Rename completed.\n");
+}
 
 #define add_entry(name) {#name, cmd_##name##_func}
 static const cmd_dispatch_entry cmd_dispatch_table[] = {
@@ -602,6 +639,8 @@ static const cmd_dispatch_entry cmd_dispatch_table[] = {
 	add_entry(DELE),
 	add_entry(RMD),
 	add_entry(MKD),
+	add_entry(RNFR),
+	add_entry(RNTO),
 	{NULL, NULL}
 };
 
