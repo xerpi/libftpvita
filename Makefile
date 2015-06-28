@@ -6,14 +6,14 @@
 TARGET = FTPVita
 OBJS   = main.o ftp.o console.o draw.o font_data.o
 
-LIBS = -lc_stub -lSceKernel_stub -lSceDisplay_stub -lSceGxm_stub	\
+LIBS = -lc_stub -lc -lgcc -lSceKernel_stub -lSceDisplay_stub -lSceGxm_stub	\
 	-lSceNet_stub -lSceNetCtl_stub -lSceCtrl_stub
 
 PREFIX  = $(DEVKITARM)/bin/arm-none-eabi
 CC      = $(PREFIX)-gcc
 READELF = $(PREFIX)-readelf
 OBJDUMP = $(PREFIX)-objdump
-CFLAGS  = -Wall -specs=$(PSP2SDK)/psp2.specs
+CFLAGS  = -Wall -specs=psp2.specs
 ASFLAGS = $(CFLAGS)
 
 CFLAGS  += -Wno-unused-but-set-variable

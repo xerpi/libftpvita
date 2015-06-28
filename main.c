@@ -5,6 +5,7 @@
 #include <psp2/display.h>
 #include <psp2/ctrl.h>
 #include <psp2/moduleinfo.h>
+#include <psp2/kernel/processmgr.h>
 
 #include "utils.h"
 #include "console.h"
@@ -45,8 +46,10 @@ int main()
 		sceDisplayWaitVblankStart();
 	}
 
+	INFO("Exiting...\n");
 	ftp_fini();
 	console_fini();
 	end_video();
+	sceKernelExitProcess(0);
 	return 0;
 }
