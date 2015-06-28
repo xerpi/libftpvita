@@ -594,6 +594,7 @@ static int file_exists(const char *path)
 static void cmd_RNFR_func(ClientInfo *client)
 {
 	char from_path[PATH_MAX];
+	/* Get the origin filename */
 	gen_filepath(client, from_path);
 
 	/* Check if the file exists */
@@ -621,6 +622,24 @@ static void cmd_RNTO_func(ClientInfo *client)
 	client_send_ctrl_msg(client, "226 Rename completed.\n");
 }
 
+static void cmd_SIZE_func(ClientInfo *client)
+{
+	SceIoStat stat;
+	char path[PATH_MAX];
+	char cmd[64];
+	/* Get the filename to retrieve its size */
+	gen_filepath(client, path);
+
+	/* Check if the file exists */
+	if (sceIoGetstat(path, &stat) < 0) {
+		client_send_ctrl_msg(client, "550 The file doesn't exist.\n");
+		return;
+	}
+	/* Send the size of the file */
+	sprintf(cmd, "213: %lld\n", stat.st_size);
+	client_send_ctrl_msg(client, cmd);
+}
+
 #define add_entry(name) {#name, cmd_##name##_func}
 static const cmd_dispatch_entry cmd_dispatch_table[] = {
 	add_entry(USER),
@@ -641,6 +660,7 @@ static const cmd_dispatch_entry cmd_dispatch_table[] = {
 	add_entry(MKD),
 	add_entry(RNFR),
 	add_entry(RNTO),
+	add_entry(SIZE),
 	{NULL, NULL}
 };
 
