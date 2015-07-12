@@ -96,6 +96,7 @@ void init_video()
 void end_video()
 {
 	sceGxmUnmapMemory(fb.base);
+	sceKernelFreeMemBlock(fb_memuid);
 	sceGxmTerminate();
 }
 
