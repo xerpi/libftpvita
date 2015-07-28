@@ -17,6 +17,8 @@
 
 #include "console.h"
 
+#define UNUSED(x) (void)(x)
+
 #define FTP_PORT 1337
 #define NET_INIT_SIZE 1*1024*1024
 #define FILE_BUF_SIZE 4*1024*1024
@@ -126,6 +128,8 @@ static void cmd_SYST_func(ClientInfo *client)
 static void cmd_PASV_func(ClientInfo *client)
 {
 	int ret;
+	UNUSED(ret);
+
 	char cmd[512];
 	unsigned int namelen;
 	SceNetSockaddrIn picked;
@@ -232,6 +236,8 @@ static void cmd_PORT_func(ClientInfo *client)
 static void client_open_data_connection(ClientInfo *client)
 {
 	int ret;
+	UNUSED(ret);
+
 	unsigned int addrlen;
 
 	if (client->data_con_type == FTP_DATA_CONNECTION_ACTIVE) {
@@ -793,6 +799,8 @@ static int client_thread(SceSize args, void *argp)
 static int server_thread(SceSize args, void *argp)
 {
 	int ret;
+	UNUSED(ret);
+
 	SceNetSockaddrIn serveraddr;
 
 	DEBUG("Server thread started!\n");
@@ -887,6 +895,8 @@ static int server_thread(SceSize args, void *argp)
 void ftp_init(char *vita_ip, unsigned short int *vita_port)
 {
 	int ret;
+	UNUSED(ret);
+
 	SceNetInitParam initparam;
 	SceNetCtlInfo info;
 
