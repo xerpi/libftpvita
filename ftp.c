@@ -23,7 +23,8 @@
 #define NET_INIT_SIZE 1*1024*1024
 #define FILE_BUF_SIZE 4*1024*1024
 
-#define FTP_DEFAULT_PATH "cache0:/"
+#define FTP_DEFAULT_PREFIX "cache0:"
+#define FTP_DEFAULT_PATH   "/"
 
 typedef enum {
 	FTP_DATA_CONNECTION_NONE,
@@ -345,7 +346,7 @@ static void cmd_LIST_func(ClientInfo *client)
 static void cmd_PWD_func(ClientInfo *client)
 {
 	char msg[PATH_MAX];
-	/* We don't want to send "cache0:" */
+	/* We don't want to send the prefix */
 	const char *pwd_path = strchr(client->cur_path, '/');
 
 	sprintf(msg, "257 \"%s\" is the current directory.\n", pwd_path);
@@ -365,7 +366,7 @@ static void cmd_CWD_func(ClientInfo *client)
 		if (cmd_path[0] != '/') { /* Change dir relative to current dir */
 			sprintf(path, "%s%s", client->cur_path, cmd_path);
 		} else {
-			sprintf(path, "cache0:%s", cmd_path);
+			sprintf(path, "%s%s", FTP_DEFAULT_PREFIX, cmd_path);
 		}
 
 		/* If there isn't "/" at the end, add it */
@@ -430,11 +431,11 @@ static void dir_up(char *path)
 static void cmd_CDUP_func(ClientInfo *client)
 {
 	char path[PATH_MAX];
-	/* Path without "cache0:" */
+	/* Path without the prefix */
 	const char *normal_path = strchr(client->cur_path, '/');
 	strcpy(path, normal_path);
 	dir_up(path);
-	sprintf(client->cur_path, "cache0:%s", path);
+	sprintf(client->cur_path, "%s%s", FTP_DEFAULT_PREFIX, path);
 	client_send_ctrl_msg(client, "200 Command okay.\n");
 }
 
@@ -482,8 +483,8 @@ static void gen_filepath(ClientInfo *client, char *dest_path)
 		/* Append the file to the current path */
 		sprintf(dest_path, "%s%s", client->cur_path, cmd_path);
 	} else {
-		/* Add "cache0:" to the file */
-		sprintf(dest_path, "cache0:%s", cmd_path);
+		/* Add the prefix to the file */
+		sprintf(dest_path, "%s%s", FTP_DEFAULT_PREFIX, cmd_path);
 	}
 }
 
@@ -883,7 +884,7 @@ static int server_thread(SceSize args, void *argp)
 			client->thid = client_thid;
 			client->ctrl_sockfd = client_sockfd;
 			client->data_con_type = FTP_DATA_CONNECTION_NONE;
-			strcpy(client->cur_path, FTP_DEFAULT_PATH);
+			sprintf(client->cur_path, "%s%s", FTP_DEFAULT_PREFIX, FTP_DEFAULT_PATH);
 			memcpy(&client->addr, &clientaddr, sizeof(client->addr));
 
 			/* Add the new client to the client list */
