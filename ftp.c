@@ -684,8 +684,7 @@ static cmd_dispatch_func get_dispatch_func(const char *cmd)
 static void client_list_add(ClientInfo *client)
 {
 	/* Add the client at the front of the client list */
-	unsigned int mtx_timeout = 0xFFFFFFFF;
-	sceKernelLockMutex(client_list_mtx, 1, &mtx_timeout);
+	sceKernelLockMutex(client_list_mtx, 1, NULL);
 
 	if (client_list == NULL) { /* List is empty */
 		client_list = client;
@@ -704,8 +703,7 @@ static void client_list_add(ClientInfo *client)
 static void client_list_delete(ClientInfo *client)
 {
 	/* Remove the client from the client list */
-	unsigned int mtx_timeout = 0xFFFFFFFF;
-	sceKernelLockMutex(client_list_mtx, 1, &mtx_timeout);
+	sceKernelLockMutex(client_list_mtx, 1, NULL);
 
 	if (client->prev) {
 		client->prev->next = client->next;
@@ -717,17 +715,27 @@ static void client_list_delete(ClientInfo *client)
 	sceKernelUnlockMutex(client_list_mtx, 1);
 }
 
-static void client_list_close_sockets()
+static void client_list_thread_end()
 {
+	ClientInfo *it, *next;
+	SceUID client_thid;
+
+	sceKernelLockMutex(client_list_mtx, 1, NULL);
+
+	it = client_list;
+
 	/* Iterate over the client list and close their sockets */
-	unsigned int mtx_timeout = 0xFFFFFFFF;
-	sceKernelLockMutex(client_list_mtx, 1, &mtx_timeout);
-
-	ClientInfo *it = client_list;
-
 	while (it) {
-		sceNetSocketClose(it->ctrl_sockfd);
-		it = it->next;
+		next = it->next;
+		client_thid = it->thid;
+
+		/* Shutdown the client's control socket */
+		sceNetShutdown(it->ctrl_sockfd, PSP2_NET_SHUT_RDWR);
+
+		/* Wait until the client threads ends */
+		sceKernelWaitThreadEnd(client_thid, NULL, NULL);
+
+		it = next;
 	}
 
 	sceKernelUnlockMutex(client_list_mtx, 1);
@@ -769,16 +777,23 @@ static int client_thread(SceSize args, void *argp)
 		} else if (client->n_recv == 0) {
 			/* Value 0 means connection closed by the remote peer */
 			INFO("Connection closed by the client %i.\n", client->num);
-			/* Close the client's socket */
-			sceNetSocketClose(client->ctrl_sockfd);
 			/* Delete itself from the client list */
 			client_list_delete(client);
 			break;
+		} else if (client->n_recv == PSP2_NET_ERROR_ECANCELED) {
+			/* PSP2_NET_ERROR_ECANCELED means socket shutdown */
+			DEBUG("Client %i socket shutdown\n", client->num);
+			break;
 		} else {
-			/* A negative value means error */
+			/* Other errors */
+			INFO("Socket error client %i.\n", client->num);
+			client_list_delete(client);
 			break;
 		}
 	}
+
+	/* Close the client's socket */
+	sceNetSocketClose(client->ctrl_sockfd);
 
 	/* If there's an open data connection, close it */
 	if (client->data_con_type != FTP_DATA_CONNECTION_NONE) {
@@ -956,17 +971,18 @@ void ftp_fini()
 		 * the accept call will return an error */
 		sceNetSocketClose(server_sockfd);
 
+		/* Wait until the server threads ends */
+		sceKernelWaitThreadEnd(server_thid, NULL, NULL);
+
 		/* To close the clients we have to do the same:
 		 * we have to iterate over all the clients
-		 * and close their sockets */
-		client_list_close_sockets();
-		client_list = NULL;
-
-		/* UGLY: Give 50 ms for the threads to exit */
-		sceKernelDelayThread(50*1000);
+		 * and shutdown their sockets */
+		client_list_thread_end();
 
 		/* Delete the client list mutex */
 		sceKernelDeleteMutex(client_list_mtx);
+
+		client_list = NULL;
 
 		sceNetCtlTerm();
 		sceNetTerm();
