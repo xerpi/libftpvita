@@ -13,7 +13,7 @@ PREFIX  = arm-vita-eabi
 CC      = $(PREFIX)-gcc
 READELF = $(PREFIX)-readelf
 OBJDUMP = $(PREFIX)-objdump
-CFLAGS  = -Wl,-q -Wall -O3 -I$(VITASDK)/include -L$(VITASDK)/lib
+CFLAGS  = -Wl,-q -Wall -O3
 ASFLAGS = $(CFLAGS)
 
 all: $(TARGET).velf
@@ -23,7 +23,7 @@ debug: all
 
 %.velf: %.elf
 	$(PREFIX)-strip -g $<
-	vita-elf-create $< $@ $(VITASDK)/bin/db.json
+	vita-elf-create $< $@
 
 $(TARGET).elf: $(OBJS)
 	$(CC) $(CFLAGS) $^ $(LIBS) -o $@
