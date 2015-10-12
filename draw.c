@@ -65,7 +65,7 @@ void init_video()
 	/* Setup framebuffers */
 	fb.size        = sizeof(fb);
 	fb.pitch       = SCREEN_W;
-	fb.pixelformat = PSP2_DISPLAY_PIXELFORMAT_A8B8G8R8;
+	fb.pixelformat = SCE_DISPLAY_PIXELFORMAT_A8B8G8R8;
 	fb.width       = SCREEN_W;
 	fb.height      = SCREEN_H;
 
@@ -78,7 +78,7 @@ void init_video()
 		return;
 	}
 
-	sceDisplaySetFrameBuf(&fb, PSP2_DISPLAY_SETBUF_NEXTFRAME);
+	sceDisplaySetFrameBuf(&fb, SCE_DISPLAY_SETBUF_NEXTFRAME);
 
 	printf(
 		"\nframebuffer 0:\n"

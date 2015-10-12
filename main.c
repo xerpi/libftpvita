@@ -4,14 +4,11 @@
 
 #include <psp2/display.h>
 #include <psp2/ctrl.h>
-#include <psp2/moduleinfo.h>
 #include <psp2/kernel/processmgr.h>
 
 #include "utils.h"
 #include "console.h"
 #include "ftp.h"
-
-PSP2_MODULE_INFO(0, 0, "FTPVita");
 
 int main()
 {
@@ -41,7 +38,7 @@ int main()
 	while (1) {
 		sceCtrlPeekBufferPositive(0, &pad, 1);
 
-		if (pad.buttons & PSP2_CTRL_START) break;
+		if (pad.buttons & SCE_CTRL_START) break;
 
 		sceDisplayWaitVblankStart();
 	}

@@ -1,4 +1,4 @@
 # Ignore build files.
 *.o
 *.elf
-
+*.velf
