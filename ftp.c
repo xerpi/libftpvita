@@ -19,6 +19,8 @@
 
 #define UNUSED(x) (void)(x)
 
+#define NET_CTL_ERROR_NOT_TERMINATED 0x80412102
+
 #define FTP_PORT 1337
 #define NET_INIT_SIZE 1*1024*1024
 #define FILE_BUF_SIZE 4*1024*1024
@@ -909,7 +911,7 @@ static int server_thread(SceSize args, void *argp)
 	return 0;
 }
 
-void ftp_init(char *vita_ip, unsigned short int *vita_port)
+int ftp_init(char *vita_ip, unsigned short int *vita_port)
 {
 	int ret;
 	UNUSED(ret);
@@ -918,7 +920,7 @@ void ftp_init(char *vita_ip, unsigned short int *vita_port)
 	SceNetCtlInfo info;
 
 	if (ftp_initialized) {
-		return;
+		return -1;
 	}
 
 	/* Init Net */
@@ -931,6 +933,8 @@ void ftp_init(char *vita_ip, unsigned short int *vita_port)
 
 		ret = sceNetInit(&initparam);
 		DEBUG("sceNetInit(): 0x%08X\n", ret);
+		if (ret < 0)
+			goto error_netinit;
 	} else {
 		DEBUG("Net is already initialized.\n");
 	}
@@ -938,10 +942,14 @@ void ftp_init(char *vita_ip, unsigned short int *vita_port)
 	/* Init NetCtl */
 	ret = sceNetCtlInit();
 	DEBUG("sceNetCtlInit(): 0x%08X\n", ret);
+	if (ret < 0 && ret != NET_CTL_ERROR_NOT_TERMINATED)
+		goto error_netctlinit;
 
 	/* Get IP address */
 	ret = sceNetCtlInetGetInfo(SCE_NETCTL_INFO_GET_IP_ADDRESS, &info);
 	DEBUG("sceNetCtlInetGetInfo(): 0x%08X\n", ret);
+	if (ret < 0)
+		goto error_netctlgetinfo;
 
 	/* Return data */
 	strcpy(vita_ip, info.ip_address);
@@ -963,6 +971,17 @@ void ftp_init(char *vita_ip, unsigned short int *vita_port)
 	sceKernelStartThread(server_thid, 0, NULL);
 
 	ftp_initialized = 1;
+
+	return 0;
+
+error_netctlgetinfo:
+	sceNetCtlTerm();
+error_netctlinit:
+	sceNetTerm();
+error_netinit:
+	free(net_memory);
+	net_memory = NULL;
+	return ret;
 }
 
 void ftp_fini()
@@ -998,3 +1017,7 @@ void ftp_fini()
 	}
 }
 
+int ftp_is_initialized()
+{
+	return ftp_initialized;
+}
