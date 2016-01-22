@@ -748,7 +748,7 @@ static int client_thread(SceSize args, void *argp)
 {
 	char cmd[16];
 	cmd_dispatch_func dispatch_func;
-	ClientInfo *client = (ClientInfo *)argp;
+	ClientInfo *client = *(ClientInfo **)argp;
 
 	DEBUG("Client thread %i started!\n", client->num);
 
@@ -808,8 +808,7 @@ static int client_thread(SceSize args, void *argp)
 
 	DEBUG("Client thread %i exiting!\n", client->num);
 
-	/* Temporary newlib thread malloc bug fix */
-	// free(client);
+	free(client);
 
 	sceKernelExitDeleteThread(0);
 	return 0;
@@ -893,7 +892,7 @@ static int server_thread(SceSize args, void *argp)
 			client_list_add(client);
 
 			/* Start the client thread */
-			sceKernelStartThread(client_thid, sizeof(*client), client);
+			sceKernelStartThread(client_thid, sizeof(client), &client);
 
 			number_clients++;
 		} else {
