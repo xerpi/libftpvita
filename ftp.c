@@ -25,8 +25,15 @@
 #define NET_INIT_SIZE 1*1024*1024
 #define FILE_BUF_SIZE 4*1024*1024
 
-#define FTP_DEFAULT_PREFIX "cache0:"
+#define FTP_DEFAULT_DEVICE "cache0:"
 #define FTP_DEFAULT_PATH   "/"
+
+/* PSVita paths are in the form:
+ *     <device name>:<filename in device>
+ * for example: cache0:/foo/bar
+ * We will send Unix-like paths to the FTP client, like:
+ *     /cache0:/foo/bar
+ */
 
 typedef enum {
 	FTP_DATA_CONNECTION_NONE,
@@ -109,6 +116,15 @@ static inline void client_send_data_raw(ClientInfo *client, const void *buf, uns
 	} else {
 		sceNetSend(client->pasv_sockfd, buf, len, 0);
 	}
+}
+
+static inline const char *get_vita_path(const char *path)
+{
+	if (strlen(path) > 1)
+		/* /cache0:/foo/bar -> cache0:/foo/bar */
+		return &path[1];
+	else
+		return NULL;
 }
 
 static void cmd_NOOP_func(ClientInfo *client)
@@ -198,13 +214,14 @@ static void cmd_PASV_func(ClientInfo *client)
 
 static void cmd_PORT_func(ClientInfo *client)
 {
-	unsigned char data_ip[4];
-	unsigned char porthi, portlo;
+	unsigned int data_ip[4];
+	unsigned int porthi, portlo;
 	unsigned short data_port;
 	char ip_str[16];
 	SceNetInAddr data_addr;
 
-	sscanf(client->recv_buffer, "%*s %hhu,%hhu,%hhu,%hhu,%hhu,%hhu",
+	/* Using ints because of newlibc's u8 sscanf bug */
+	sscanf(client->recv_buffer, "%*s %d,%d,%d,%d,%d,%d",
 		&data_ip[0], &data_ip[1], &data_ip[2], &data_ip[3],
 		&porthi, &portlo);
 
@@ -278,6 +295,11 @@ static void client_close_data_connection(ClientInfo *client)
 	client->data_con_type = FTP_DATA_CONNECTION_NONE;
 }
 
+static void send_list_current_devices(ClientInfo *client)
+{
+	// STUBBED
+}
+
 static int gen_list_format(char *out, int n, int dir, unsigned int file_size,
 	int month_n, int day_n, int hour, int minute, const char *filename)
 {
@@ -298,14 +320,20 @@ static int gen_list_format(char *out, int n, int dir, unsigned int file_size,
 		filename);
 }
 
-
 static void send_LIST(ClientInfo *client, const char *path)
 {
 	char buffer[512];
 	SceUID dir;
 	SceIoDirent dirent;
 
-	dir = sceIoDopen(path);
+	/* "/" path is a special case, if we are here we have
+	 * to send the list of devices (aka mountpoints). */
+	if (strcmp(path, "/") == 0) {
+		send_list_current_devices(client);
+		goto send_LIST_done;
+	}
+
+	dir = sceIoDopen(get_vita_path(path));
 	if (dir < 0) {
 		client_send_ctrl_msg(client, "550 Invalid directory.\n");
 		return;
@@ -334,6 +362,7 @@ static void send_LIST(ClientInfo *client, const char *path)
 
 	sceIoDclose(dir);
 
+send_LIST_done:
 	DEBUG("Done sending LIST\n");
 
 	client_close_data_connection(client);
@@ -356,43 +385,52 @@ static void cmd_LIST_func(ClientInfo *client)
 static void cmd_PWD_func(ClientInfo *client)
 {
 	char msg[PATH_MAX];
-	/* We don't want to send the prefix */
-	const char *pwd_path = strchr(client->cur_path, '/');
-
-	sprintf(msg, "257 \"%s\" is the current directory.\n", pwd_path);
+	sprintf(msg, "257 \"%s\" is the current directory.\n", client->cur_path);
 	client_send_ctrl_msg(client, msg);
+}
+
+static int path_is_at_root(const char *path)
+{
+	return strrchr(path, '/') == (path + strlen(path) - 1);
 }
 
 static void cmd_CWD_func(ClientInfo *client)
 {
 	char cmd_path[PATH_MAX];
-	char path[PATH_MAX];
+	char tmp_path[PATH_MAX];
 	SceUID pd;
 	int n = sscanf(client->recv_buffer, "%*s %[^\r\n\t]", cmd_path);
 
 	if (n < 1) {
 		client_send_ctrl_msg(client, "500 Syntax error, command unrecognized.\n");
 	} else {
-		if (cmd_path[0] != '/') { /* Change dir relative to current dir */
-			sprintf(path, "%s%s", client->cur_path, cmd_path);
-		} else {
-			sprintf(path, "%s%s", FTP_DEFAULT_PREFIX, cmd_path);
+		if (cmd_path[0] == '/') {
+			strcpy(tmp_path, cmd_path);
+		} else { /* Change dir relative to current dir */
+			/* If we are at the root of the device, don't add
+			 * an slash to add new path */
+			if (path_is_at_root(client->cur_path))
+				sprintf(tmp_path, "%s%s", client->cur_path, cmd_path);
+			else
+				sprintf(tmp_path, "%s/%s", client->cur_path, cmd_path);
 		}
 
-		/* If there isn't "/" at the end, add it */
-		if (path[strlen(path) - 1] != '/') {
-			strcat(path, "/");
+		/* If the path is like: /foo: add an slash */
+		if (strrchr(tmp_path, '/') == tmp_path)
+			strcat(tmp_path, "/");
+
+		/* If the path is not "/", check if it exists */
+		if (strcmp(tmp_path, "/") != 0) {
+			/* Check if the path exists */
+			pd = sceIoDopen(get_vita_path(tmp_path));
+			if (pd < 0) {
+				client_send_ctrl_msg(client, "550 Invalid directory.\n");
+				return;
+			}
+			sceIoDclose(pd);
 		}
 
-		/* Check if the path exists */
-		pd = sceIoDopen(path);
-		if (pd < 0) {
-			client_send_ctrl_msg(client, "550 Invalid directory.\n");
-			return;
-		}
-		sceIoDclose(pd);
-
-		strcpy(client->cur_path, path);
+		strcpy(client->cur_path, tmp_path);
 		client_send_ctrl_msg(client, "250 Requested file action okay, completed.\n");
 	}
 }
@@ -428,24 +466,21 @@ static void dir_up(char *path)
 		strcpy(path, "/");
 		return;
 	}
-	if (path[len_in - 1] == '/') {
-		path[len_in - 1] = '\0';
-	}
-	pch = strrchr(path, '/');
-	if (pch) {
+	if (path_is_at_root(path)) { /* Case root of the device (/foo0:/) */
+		strcpy(path, "/");
+	} else {
+		pch = strrchr(path, '/');
 		size_t s = len_in - (pch - path);
-		memset(pch + 1, '\0', s);
+		memset(pch, '\0', s);
+		/* If the path is like: /foo: add slash */
+		if (strrchr(path, '/') == path)
+			strcat(path, "/");
 	}
 }
 
 static void cmd_CDUP_func(ClientInfo *client)
 {
-	char path[PATH_MAX];
-	/* Path without the prefix */
-	const char *normal_path = strchr(client->cur_path, '/');
-	strcpy(path, normal_path);
-	dir_up(path);
-	sprintf(client->cur_path, "%s%s", FTP_DEFAULT_PREFIX, path);
+	dir_up(client->cur_path);
 	client_send_ctrl_msg(client, "200 Command okay.\n");
 }
 
@@ -482,19 +517,20 @@ static void send_file(ClientInfo *client, const char *path)
 	}
 }
 
-/* This function generates a PSVita valid path with the input path
+/* This function generates an FTP valid path with the input path
  * from RETR, STOR, DELE, RMD, MKD, RNFR and RNTO commands */
 static void gen_filepath(ClientInfo *client, char *dest_path)
 {
 	char cmd_path[PATH_MAX];
 	sscanf(client->recv_buffer, "%*[^ ] %[^\r\n\t]", cmd_path);
 
-	if (cmd_path[0] != '/') { /* The file is relative to current dir */
-		/* Append the file to the current path */
-		sprintf(dest_path, "%s%s", client->cur_path, cmd_path);
+	if (cmd_path[0] == '/') {
+		/* Full path */
+		strcpy(dest_path, cmd_path);
 	} else {
-		/* Add the prefix to the file */
-		sprintf(dest_path, "%s%s", FTP_DEFAULT_PREFIX, cmd_path);
+		/* The file is relative to current dir, so
+		 * append the file to the current path */
+		sprintf(dest_path, "%s/%s", client->cur_path, cmd_path);
 	}
 }
 
@@ -502,7 +538,7 @@ static void cmd_RETR_func(ClientInfo *client)
 {
 	char dest_path[PATH_MAX];
 	gen_filepath(client, dest_path);
-	send_file(client, dest_path);
+	send_file(client, get_vita_path(dest_path));
 }
 
 static void receive_file(ClientInfo *client, const char *path)
@@ -542,7 +578,7 @@ static void cmd_STOR_func(ClientInfo *client)
 {
 	char dest_path[PATH_MAX];
 	gen_filepath(client, dest_path);
-	receive_file(client, dest_path);
+	receive_file(client, get_vita_path(dest_path));
 }
 
 static void delete_file(ClientInfo *client, const char *path)
@@ -560,7 +596,7 @@ static void cmd_DELE_func(ClientInfo *client)
 {
 	char dest_path[PATH_MAX];
 	gen_filepath(client, dest_path);
-	delete_file(client, dest_path);
+	delete_file(client, get_vita_path(dest_path));
 }
 
 static void delete_dir(ClientInfo *client, const char *path)
@@ -581,7 +617,7 @@ static void cmd_RMD_func(ClientInfo *client)
 {
 	char dest_path[PATH_MAX];
 	gen_filepath(client, dest_path);
-	delete_dir(client, dest_path);
+	delete_dir(client, get_vita_path(dest_path));
 }
 
 static void create_dir(ClientInfo *client, const char *path)
@@ -599,7 +635,7 @@ static void cmd_MKD_func(ClientInfo *client)
 {
 	char dest_path[PATH_MAX];
 	gen_filepath(client, dest_path);
-	create_dir(client, dest_path);
+	create_dir(client, get_vita_path(dest_path));
 }
 
 static int file_exists(const char *path)
@@ -610,29 +646,33 @@ static int file_exists(const char *path)
 
 static void cmd_RNFR_func(ClientInfo *client)
 {
-	char from_path[PATH_MAX];
+	char path_src[PATH_MAX];
+	const char *vita_path_src;
 	/* Get the origin filename */
-	gen_filepath(client, from_path);
+	gen_filepath(client, path_src);
+	vita_path_src = get_vita_path(path_src);
 
 	/* Check if the file exists */
-	if (!file_exists(from_path)) {
+	if (!file_exists(vita_path_src)) {
 		client_send_ctrl_msg(client, "550 The file doesn't exist.\n");
 		return;
 	}
 	/* The file to be renamed is the received path */
-	strcpy(client->rename_path, from_path);
+	strcpy(client->rename_path, vita_path_src);
 	client_send_ctrl_msg(client, "250 I need the destination name b0ss.\n");
 }
 
 static void cmd_RNTO_func(ClientInfo *client)
 {
-	char path_to[PATH_MAX];
+	char path_dst[PATH_MAX];
+	const char *vita_path_dst;
 	/* Get the destination filename */
-	gen_filepath(client, path_to);
+	gen_filepath(client, path_dst);
+	vita_path_dst = get_vita_path(path_dst);
 
-	DEBUG("Renaming: %s to %s\n", client->rename_path, path_to);
+	DEBUG("Renaming: %s to %s\n", client->rename_path, vita_path_dst);
 
-	if (sceIoRename(client->rename_path, path_to) < 0) {
+	if (sceIoRename(client->rename_path, vita_path_dst) < 0) {
 		client_send_ctrl_msg(client, "550 Error renaming the file.\n");
 	}
 
@@ -648,7 +688,7 @@ static void cmd_SIZE_func(ClientInfo *client)
 	gen_filepath(client, path);
 
 	/* Check if the file exists */
-	if (sceIoGetstat(path, &stat) < 0) {
+	if (sceIoGetstat(get_vita_path(path), &stat) < 0) {
 		client_send_ctrl_msg(client, "550 The file doesn't exist.\n");
 		return;
 	}
@@ -769,7 +809,6 @@ static int client_thread(SceSize args, void *argp)
 	client_send_ctrl_msg(client, "220 FTPVita Server ready.\n");
 
 	while (1) {
-
 		memset(client->recv_buffer, 0, sizeof(client->recv_buffer));
 
 		client->n_recv = sceNetRecv(client->ctrl_sockfd, client->recv_buffer, sizeof(client->recv_buffer), 0);
@@ -803,7 +842,7 @@ static int client_thread(SceSize args, void *argp)
 			break;
 		} else {
 			/* Other errors */
-			INFO("Socket error client %i.\n", client->num);
+			INFO("Client %i socket error: 0x%08X\n", client->num, client->n_recv);
 			client_list_delete(client);
 			break;
 		}
@@ -859,7 +898,6 @@ static int server_thread(SceSize args, void *argp)
 	DEBUG("sceNetListen(): 0x%08X\n", ret);
 
 	while (1) {
-
 		/* Accept clients */
 		SceNetSockaddrIn clientaddr;
 		int client_sockfd;
@@ -869,7 +907,6 @@ static int server_thread(SceSize args, void *argp)
 
 		client_sockfd = sceNetAccept(server_sockfd, (SceNetSockaddr *)&clientaddr, &addrlen);
 		if (client_sockfd >= 0) {
-
 			DEBUG("New connection, client fd: 0x%08X\n", client_sockfd);
 
 			/* Get the client's IP address */
@@ -899,7 +936,7 @@ static int server_thread(SceSize args, void *argp)
 			client->thid = client_thid;
 			client->ctrl_sockfd = client_sockfd;
 			client->data_con_type = FTP_DATA_CONNECTION_NONE;
-			sprintf(client->cur_path, "%s%s", FTP_DEFAULT_PREFIX, FTP_DEFAULT_PATH);
+			sprintf(client->cur_path, "/%s%s", FTP_DEFAULT_DEVICE, FTP_DEFAULT_PATH);
 			memcpy(&client->addr, &clientaddr, sizeof(client->addr));
 
 			/* Add the new client to the client list */
