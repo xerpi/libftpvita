@@ -2,9 +2,11 @@
  * Copyright (c) 2015 Sergi Granell (xerpi)
  */
 
+#include <string.h>
+
 #include <psp2/display.h>
 #include <psp2/ctrl.h>
-#include <psp2/kernel/processmgr.h>
+#include <psp2/apputil.h>
 
 #include "utils.h"
 #include "console.h"
@@ -14,6 +16,8 @@ int main()
 {
 	char vita_ip[16];
 	unsigned short int vita_port;
+	SceAppUtilInitParam init_param;
+	SceAppUtilBootParam boot_param;
 
 	init_video();
 	console_init();
@@ -24,7 +28,18 @@ int main()
 	INFO("Press [] to exit\n");
 	console_set_color(WHITE);
 
-	ftp_init(vita_ip, &vita_port);
+	// Init SceAppUtil
+	memset(&init_param, 0, sizeof(SceAppUtilInitParam));
+	memset(&boot_param, 0, sizeof(SceAppUtilBootParam));
+	sceAppUtilInit(&init_param, &boot_param);
+
+	ftpvita_init(vita_ip, &vita_port);
+
+	// Mount music0: and photo0:
+	if (sceAppUtilMusicMount() == 0)
+		ftpvita_add_device("music0:");
+	if (sceAppUtilPhotoMount() == 0)
+		ftpvita_add_device("photo0:");
 
 	console_set_color(LIME);
 	INFO("PSVita listening on IP %s Port %i\n", vita_ip, vita_port);
@@ -44,9 +59,16 @@ int main()
 	}
 
 	INFO("Exiting...\n");
-	ftp_fini();
+	ftpvita_fini();
+
+	// Unmount
+	sceAppUtilPhotoUmount();
+	sceAppUtilMusicUmount();
+
+	// Shutdown AppUtil
+	sceAppUtilShutdown();
+
 	console_fini();
 	end_video();
-	sceKernelExitProcess(0);
 	return 0;
 }

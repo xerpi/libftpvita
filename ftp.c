@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2015 Sergi Granell (xerpi)
+ * Copyright (c) 2015-2016 Sergi Granell (xerpi)
  */
 
 #include <stdio.h>
@@ -27,6 +27,8 @@
 
 #define FTP_DEFAULT_DEVICE "cache0:"
 #define FTP_DEFAULT_PATH   "/"
+
+#define MAX_DEVICES 16
 
 /* PSVita paths are in the form:
  *     <device name>:<filename in device>
@@ -75,6 +77,11 @@ typedef struct {
 	const char *cmd;
 	cmd_dispatch_func func;
 } cmd_dispatch_entry;
+
+static struct {
+	char name[PATH_MAX];
+	int valid;
+} device_list[MAX_DEVICES];
 
 static void *net_memory = NULL;
 static int ftp_initialized = 0;
@@ -295,11 +302,6 @@ static void client_close_data_connection(ClientInfo *client)
 	client->data_con_type = FTP_DATA_CONNECTION_NONE;
 }
 
-static void send_list_current_devices(ClientInfo *client)
-{
-	// STUBBED
-}
-
 static int gen_list_format(char *out, int n, int dir, unsigned int file_size,
 	int month_n, int day_n, int hour, int minute, const char *filename)
 {
@@ -322,47 +324,69 @@ static int gen_list_format(char *out, int n, int dir, unsigned int file_size,
 
 static void send_LIST(ClientInfo *client, const char *path)
 {
+	int i;
 	char buffer[512];
 	SceUID dir;
 	SceIoDirent dirent;
+	SceIoStat stat;
+	char *devname;
+	int send_devices = 0;
 
 	/* "/" path is a special case, if we are here we have
 	 * to send the list of devices (aka mountpoints). */
 	if (strcmp(path, "/") == 0) {
-		send_list_current_devices(client);
-		goto send_LIST_done;
+		send_devices = 1;
 	}
 
-	dir = sceIoDopen(get_vita_path(path));
-	if (dir < 0) {
-		client_send_ctrl_msg(client, "550 Invalid directory.\n");
-		return;
+	if (!send_devices) {
+		dir = sceIoDopen(get_vita_path(path));
+		if (dir < 0) {
+			client_send_ctrl_msg(client, "550 Invalid directory.\n");
+			return;
+		}
 	}
 
 	client_send_ctrl_msg(client, "150 Opening ASCII mode data transfer for LIST.\n");
 
 	client_open_data_connection(client);
 
-	memset(&dirent, 0, sizeof(dirent));
-
-	while (sceIoDread(dir, &dirent) > 0) {
-		gen_list_format(buffer, sizeof(buffer),
-			SCE_S_ISDIR(dirent.d_stat.st_mode),
-			dirent.d_stat.st_size,
-			dirent.d_stat.st_ctime.month,
-			dirent.d_stat.st_ctime.day,
-			dirent.d_stat.st_ctime.hour,
-			dirent.d_stat.st_ctime.minute,
-			dirent.d_name);
-
-		client_send_data_msg(client, buffer);
+	if (send_devices) {
+		for (i = 0; i < MAX_DEVICES; i++) {
+			if (device_list[i].valid) {
+				devname = device_list[i].name;
+				sceIoGetstat(devname, &stat);
+				gen_list_format(buffer, sizeof(buffer),
+					1,
+					stat.st_size,
+					stat.st_mtime.month,
+					stat.st_mtime.day,
+					stat.st_mtime.hour,
+					stat.st_mtime.minute,
+					devname);
+				client_send_data_msg(client, buffer);
+			}
+		}
+	} else {
 		memset(&dirent, 0, sizeof(dirent));
-		memset(buffer, 0, sizeof(buffer));
+
+		while (sceIoDread(dir, &dirent) > 0) {
+			gen_list_format(buffer, sizeof(buffer),
+				SCE_S_ISDIR(dirent.d_stat.st_mode),
+				dirent.d_stat.st_size,
+				dirent.d_stat.st_ctime.month,
+				dirent.d_stat.st_ctime.day,
+				dirent.d_stat.st_ctime.hour,
+				dirent.d_stat.st_ctime.minute,
+				dirent.d_name);
+
+			client_send_data_msg(client, buffer);
+			memset(&dirent, 0, sizeof(dirent));
+			memset(buffer, 0, sizeof(buffer));
+		}
+
+		sceIoDclose(dir);
 	}
 
-	sceIoDclose(dir);
-
-send_LIST_done:
 	DEBUG("Done sending LIST\n");
 
 	client_close_data_connection(client);
@@ -404,33 +428,36 @@ static void cmd_CWD_func(ClientInfo *client)
 	if (n < 1) {
 		client_send_ctrl_msg(client, "500 Syntax error, command unrecognized.\n");
 	} else {
-		if (cmd_path[0] == '/') {
-			strcpy(tmp_path, cmd_path);
-		} else { /* Change dir relative to current dir */
-			/* If we are at the root of the device, don't add
-			 * an slash to add new path */
-			if (path_is_at_root(client->cur_path))
-				sprintf(tmp_path, "%s%s", client->cur_path, cmd_path);
-			else
-				sprintf(tmp_path, "%s/%s", client->cur_path, cmd_path);
-		}
-
-		/* If the path is like: /foo: add an slash */
-		if (strrchr(tmp_path, '/') == tmp_path)
-			strcat(tmp_path, "/");
-
-		/* If the path is not "/", check if it exists */
-		if (strcmp(tmp_path, "/") != 0) {
-			/* Check if the path exists */
-			pd = sceIoDopen(get_vita_path(tmp_path));
-			if (pd < 0) {
-				client_send_ctrl_msg(client, "550 Invalid directory.\n");
-				return;
+		if (strcmp(cmd_path, "/") == 0) {
+			strcpy(client->cur_path, cmd_path);
+		} else {
+			if (cmd_path[0] == '/') { /* Full path */
+				strcpy(tmp_path, cmd_path);
+			} else { /* Change dir relative to current dir */
+				/* If we are at the root of the device, don't add
+				 * an slash to add new path */
+				if (path_is_at_root(client->cur_path))
+					sprintf(tmp_path, "%s%s", client->cur_path, cmd_path);
+				else
+					sprintf(tmp_path, "%s/%s", client->cur_path, cmd_path);
 			}
-			sceIoDclose(pd);
-		}
 
-		strcpy(client->cur_path, tmp_path);
+			/* If the path is like: /foo: add an slash */
+			if (strrchr(tmp_path, '/') == tmp_path)
+				strcat(tmp_path, "/");
+
+			/* If the path is not "/", check if it exists */
+			if (strcmp(tmp_path, "/") != 0) {
+				/* Check if the path exists */
+				pd = sceIoDopen(get_vita_path(tmp_path));
+				if (pd < 0) {
+					client_send_ctrl_msg(client, "550 Invalid directory.\n");
+					return;
+				}
+				sceIoDclose(pd);
+			}
+			strcpy(client->cur_path, tmp_path);
+		}
 		client_send_ctrl_msg(client, "250 Requested file action okay, completed.\n");
 	}
 }
@@ -961,11 +988,10 @@ static int server_thread(SceSize args, void *argp)
 	return 0;
 }
 
-int ftp_init(char *vita_ip, unsigned short int *vita_port)
+int ftpvita_init(char *vita_ip, unsigned short int *vita_port)
 {
 	int ret;
-	UNUSED(ret);
-
+	int i;
 	SceNetInitParam initparam;
 	SceNetCtlInfo info;
 
@@ -1022,6 +1048,13 @@ int ftp_init(char *vita_ip, unsigned short int *vita_port)
 	client_list_mtx = sceKernelCreateMutex("FTPVita_client_list_mutex", 0, 0, NULL);
 	DEBUG("Client list mutex UID: 0x%08X\n", client_list_mtx);
 
+	/* Init device list */
+	strcpy(device_list[0].name, FTP_DEFAULT_DEVICE);
+	device_list[0].valid = 1;
+	for (i = 1; i < MAX_DEVICES; i++) {
+		device_list[i].valid = 0;
+	}
+
 	/* Start the server thread */
 	sceKernelStartThread(server_thid, 0, NULL);
 
@@ -1048,7 +1081,7 @@ error_netstat:
 	return ret;
 }
 
-void ftp_fini()
+void ftpvita_fini()
 {
 	if (ftp_initialized) {
 		/* In order to "stop" the blocking sceNetAccept,
@@ -1084,7 +1117,32 @@ void ftp_fini()
 	}
 }
 
-int ftp_is_initialized()
+int ftpvita_is_initialized()
 {
 	return ftp_initialized;
+}
+
+int ftpvita_add_device(const char *devname)
+{
+	int i;
+	for (i = 0; i < MAX_DEVICES; i++) {
+		if (!device_list[i].valid) {
+			strcpy(device_list[i].name, devname);
+			device_list[i].valid = 1;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+int ftpvita_del_device(const char *devname)
+{
+	int i;
+	for (i = 0; i < MAX_DEVICES; i++) {
+		if (strcmp(devname, device_list[i].name) == 0) {
+			device_list[i].valid = 0;
+			return 1;
+		}
+	}
+	return 0;
 }
