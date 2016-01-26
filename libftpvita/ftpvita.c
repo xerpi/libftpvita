@@ -436,6 +436,26 @@ static int path_is_at_root(const char *path)
 	return strrchr(path, '/') == (path + strlen(path) - 1);
 }
 
+static void dir_up(char *path)
+{
+	char *pch;
+	size_t len_in = strlen(path);
+	if (len_in == 1) {
+		strcpy(path, "/");
+		return;
+	}
+	if (path_is_at_root(path)) { /* Case root of the device (/foo0:/) */
+		strcpy(path, "/");
+	} else {
+		pch = strrchr(path, '/');
+		size_t s = len_in - (pch - path);
+		memset(pch, '\0', s);
+		/* If the path is like: /foo: add slash */
+		if (strrchr(path, '/') == path)
+			strcat(path, "/");
+	}
+}
+
 static void cmd_CWD_func(ClientInfo *client)
 {
 	char cmd_path[PATH_MAX];
@@ -448,6 +468,8 @@ static void cmd_CWD_func(ClientInfo *client)
 	} else {
 		if (strcmp(cmd_path, "/") == 0) {
 			strcpy(client->cur_path, cmd_path);
+		} else  if (strcmp(cmd_path, "..") == 0) {
+			dir_up(client->cur_path);
 		} else {
 			if (cmd_path[0] == '/') { /* Full path */
 				strcpy(tmp_path, cmd_path);
@@ -500,26 +522,6 @@ static void cmd_TYPE_func(ClientInfo *client)
 		}
 	} else {
 		client_send_ctrl_msg(client, "504 Error: bad parameters?\n");
-	}
-}
-
-static void dir_up(char *path)
-{
-	char *pch;
-	size_t len_in = strlen(path);
-	if (len_in == 1) {
-		strcpy(path, "/");
-		return;
-	}
-	if (path_is_at_root(path)) { /* Case root of the device (/foo0:/) */
-		strcpy(path, "/");
-	} else {
-		pch = strrchr(path, '/');
-		size_t s = len_in - (pch - path);
-		memset(pch, '\0', s);
-		/* If the path is like: /foo: add slash */
-		if (strrchr(path, '/') == path)
-			strcat(path, "/");
 	}
 }
 
