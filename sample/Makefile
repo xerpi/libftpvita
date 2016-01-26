@@ -4,9 +4,9 @@
 #
 
 TARGET = FTPVita
-OBJS   = main.o ftpvita.o console.o draw.o font_data.o
+OBJS   = main.o console.o draw.o font_data.o
 
-LIBS = -lc -lSceKernel_stub -lSceDisplay_stub -lSceGxm_stub	\
+LIBS = -lftpvita -lc -lSceKernel_stub -lSceDisplay_stub -lSceGxm_stub	\
 	-lSceNet_stub -lSceNetCtl_stub -lSceCtrl_stub -lSceAppUtil_stub
 
 PREFIX  = arm-vita-eabi

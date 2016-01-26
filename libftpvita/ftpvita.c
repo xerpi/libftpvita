@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdarg.h>
 #include <sys/syslimits.h>
 
 #include <psp2/kernel/threadmgr.h>
@@ -15,7 +16,7 @@
 #include <psp2/net/net.h>
 #include <psp2/net/netctl.h>
 
-#include "console.h"
+#include "ftpvita.h"
 
 #define UNUSED(x) (void)(x)
 
@@ -94,6 +95,24 @@ static SceUID client_list_mtx;
 
 static int netctl_init = -1;
 static int net_init = -1;
+
+static void (*info_log_cb)(const char *) = NULL;
+static void (*debug_log_cb)(const char *) = NULL;
+
+static void log_func(ftpvita_log_cb_t log_cb, const char *s, ...)
+{
+	if (log_cb) {
+		char buf[256];
+		va_list argptr;
+		va_start(argptr, s);
+		vsnprintf(buf, sizeof(buf), s, argptr);
+		va_end(argptr);
+		log_cb(buf);
+	}
+}
+
+#define INFO(...) log_func(info_log_cb, __VA_ARGS__)
+#define DEBUG(...) log_func(debug_log_cb, __VA_ARGS__)
 
 #define client_send_ctrl_msg(cl, str) \
 	sceNetSend(cl->ctrl_sockfd, str, strlen(str), 0)
@@ -1145,4 +1164,14 @@ int ftpvita_del_device(const char *devname)
 		}
 	}
 	return 0;
+}
+
+void ftpvita_set_info_log_cb(ftpvita_log_cb_t cb)
+{
+	info_log_cb = cb;
+}
+
+void ftpvita_set_debug_log_cb(ftpvita_log_cb_t cb)
+{
+	debug_log_cb = cb;
 }

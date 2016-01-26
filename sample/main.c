@@ -8,9 +8,22 @@
 #include <psp2/ctrl.h>
 #include <psp2/apputil.h>
 
+#include <ftpvita.h>
+
 #include "utils.h"
 #include "console.h"
-#include "ftpvita.h"
+
+static void info_log(const char *s)
+{
+	INFO(s);
+}
+
+#ifdef SHOW_DEBUG
+static void debug_log(const char *s)
+{
+	DEBUG(s);
+}
+#endif
 
 int main()
 {
@@ -32,6 +45,11 @@ int main()
 	memset(&init_param, 0, sizeof(SceAppUtilInitParam));
 	memset(&boot_param, 0, sizeof(SceAppUtilBootParam));
 	sceAppUtilInit(&init_param, &boot_param);
+
+	ftpvita_set_info_log_cb(info_log);
+#ifdef SHOW_DEBUG
+	ftpvita_set_debug_log_cb(debug_log);
+#endif
 
 	ftpvita_init(vita_ip, &vita_port);
 
