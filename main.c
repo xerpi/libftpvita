@@ -21,7 +21,7 @@ int main()
 	console_set_color(PURP);
 	INFO("FTPVita by xerpi\n");
 	console_set_color(CYAN);
-	INFO("Press START to exit\n");
+	INFO("Press [] to exit\n");
 	console_set_color(WHITE);
 
 	ftp_init(vita_ip, &vita_port);
@@ -38,7 +38,7 @@ int main()
 	while (1) {
 		sceCtrlPeekBufferPositive(0, &pad, 1);
 
-		if (pad.buttons & SCE_CTRL_START) break;
+		if (pad.buttons & SCE_CTRL_SQUARE) break;
 
 		sceDisplayWaitVblankStart();
 	}

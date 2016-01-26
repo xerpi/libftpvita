@@ -111,6 +111,11 @@ static inline void client_send_data_raw(ClientInfo *client, const void *buf, uns
 	}
 }
 
+static void cmd_NOOP_func(ClientInfo *client)
+{
+	client_send_ctrl_msg(client, "200 No operation ;)\n");
+}
+
 static void cmd_USER_func(ClientInfo *client)
 {
 	client_send_ctrl_msg(client, "331 Username OK, need password b0ss.\n");
@@ -654,6 +659,7 @@ static void cmd_SIZE_func(ClientInfo *client)
 
 #define add_entry(name) {#name, cmd_##name##_func}
 static const cmd_dispatch_entry cmd_dispatch_table[] = {
+	add_entry(NOOP),
 	add_entry(USER),
 	add_entry(PASS),
 	add_entry(QUIT),
