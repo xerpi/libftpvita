@@ -27,8 +27,10 @@ static void debug_log(const char *s)
 
 int main()
 {
+	int run = 1;
 	char vita_ip[16];
 	unsigned short int vita_port;
+	SceCtrlData pad;
 	SceAppUtilInitParam init_param;
 	SceAppUtilBootParam boot_param;
 
@@ -51,7 +53,24 @@ int main()
 	ftpvita_set_debug_log_cb(debug_log);
 #endif
 
-	ftpvita_init(vita_ip, &vita_port);
+	int y = console_get_y();
+	while (ftpvita_init(vita_ip, &vita_port) < 0 && run) {
+		INFO("You have to enable Wi-Fi.\nPress X to continue.\n");
+		while (run) {
+			sceCtrlPeekBufferPositive(0, &pad, 1);
+			if (pad.buttons & SCE_CTRL_CROSS) break;
+			else if (pad.buttons & SCE_CTRL_SQUARE) run = 0;
+			sceDisplayWaitVblankStart();
+		}
+		if (!run) {
+			INFO("Exiting...\n");
+			console_fini();
+			end_video();
+			return 0;
+		}
+		console_set_y(y);
+	}
+
 	ftpvita_add_device("cache0:");
 
 	// Mount music0: and photo0:
@@ -66,14 +85,9 @@ int main()
 
 	console_set_top_margin(10 + 20*3);
 
-	/* Input variables */
-	SceCtrlData pad;
-
-	while (1) {
+	while (run) {
 		sceCtrlPeekBufferPositive(0, &pad, 1);
-
-		if (pad.buttons & SCE_CTRL_SQUARE) break;
-
+		if (pad.buttons & SCE_CTRL_SQUARE) run = 0;
 		sceDisplayWaitVblankStart();
 	}
 

@@ -16,6 +16,7 @@ void console_print(const char *s);
 void console_printf(const char *s, ...);
 void console_set_color(uint32_t color);
 int console_get_y();
+void console_set_y(int new_y);
 void console_set_top_margin(int new_top_margin);
 
 #define INFO(...) console_printf(__VA_ARGS__)

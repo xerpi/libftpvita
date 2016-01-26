@@ -120,6 +120,12 @@ int console_get_y()
 	return cns_y;
 }
 
+void console_set_y(int new_y)
+{
+	cns_y = new_y;
+	draw_rectangle(0, cns_y, SCREEN_W, 20, BLACK);
+}
+
 void console_set_top_margin(int new_top_margin)
 {
 	top_margin = new_top_margin;
