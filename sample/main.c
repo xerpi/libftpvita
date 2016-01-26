@@ -52,6 +52,7 @@ int main()
 #endif
 
 	ftpvita_init(vita_ip, &vita_port);
+	ftpvita_add_device("cache0:");
 
 	// Mount music0: and photo0:
 	if (sceAppUtilMusicMount() == 0)

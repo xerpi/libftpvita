@@ -26,7 +26,6 @@
 #define NET_INIT_SIZE 1*1024*1024
 #define FILE_BUF_SIZE 4*1024*1024
 
-#define FTP_DEFAULT_DEVICE "cache0:"
 #define FTP_DEFAULT_PATH   "/"
 
 #define MAX_DEVICES 16
@@ -982,7 +981,7 @@ static int server_thread(SceSize args, void *argp)
 			client->thid = client_thid;
 			client->ctrl_sockfd = client_sockfd;
 			client->data_con_type = FTP_DATA_CONNECTION_NONE;
-			sprintf(client->cur_path, "/%s%s", FTP_DEFAULT_DEVICE, FTP_DEFAULT_PATH);
+			strcpy(client->cur_path, FTP_DEFAULT_PATH);
 			memcpy(&client->addr, &clientaddr, sizeof(client->addr));
 
 			/* Add the new client to the client list */
@@ -1068,9 +1067,7 @@ int ftpvita_init(char *vita_ip, unsigned short int *vita_port)
 	DEBUG("Client list mutex UID: 0x%08X\n", client_list_mtx);
 
 	/* Init device list */
-	strcpy(device_list[0].name, FTP_DEFAULT_DEVICE);
-	device_list[0].valid = 1;
-	for (i = 1; i < MAX_DEVICES; i++) {
+	for (i = 0; i < MAX_DEVICES; i++) {
 		device_list[i].valid = 0;
 	}
 
