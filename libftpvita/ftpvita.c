@@ -592,7 +592,7 @@ static void receive_file(ClientInfo *client, const char *path)
 {
 	unsigned char *buffer;
 	SceUID fd;
-	unsigned int bytes_recv;
+	int bytes_recv;
 
 	DEBUG("Opening: %s\n", path);
 
@@ -613,7 +613,12 @@ static void receive_file(ClientInfo *client, const char *path)
 
 		sceIoClose(fd);
 		free(buffer);
-		client_send_ctrl_msg(client, "226 Transfer completed.\n");
+		if (bytes_recv == 0) {
+			client_send_ctrl_msg(client, "226 Transfer completed.\n");
+		} else {
+			sceIoRemove(path);
+			client_send_ctrl_msg(client, "426 Connection closed; transfer aborted.\n");
+		}
 		client_close_data_connection(client);
 
 	} else {
@@ -796,6 +801,8 @@ static void client_list_add(ClientInfo *client)
 		client_list = client;
 	}
 
+	number_clients++;
+
 	sceKernelUnlockMutex(client_list_mtx, 1);
 }
 
@@ -823,6 +830,8 @@ static void client_list_thread_end()
 {
 	ClientInfo *it, *next;
 	SceUID client_thid;
+	const int data_abort_flags = SCE_NET_SOCKET_ABORT_FLAG_RCV_PRESERVATION |
+				SCE_NET_SOCKET_ABORT_FLAG_SND_PRESERVATION;
 
 	sceKernelLockMutex(client_list_mtx, 1, NULL);
 
@@ -833,8 +842,18 @@ static void client_list_thread_end()
 		next = it->next;
 		client_thid = it->thid;
 
-		/* Shutdown the client's control socket */
-		sceNetShutdown(it->ctrl_sockfd, SCE_NET_SHUT_RDWR);
+		/* Abort the client's control socket, only abort
+		 * receiving data so we can still send control messages */
+		sceNetSocketAbort(it->ctrl_sockfd,
+			SCE_NET_SOCKET_ABORT_FLAG_RCV_PRESERVATION);
+
+		/* If there's an open data connection, abort it */
+		if (it->data_con_type != FTP_DATA_CONNECTION_NONE) {
+			sceNetSocketAbort(it->data_sockfd, data_abort_flags);
+			if (it->data_con_type == FTP_DATA_CONNECTION_PASSIVE) {
+				sceNetSocketAbort(it->pasv_sockfd, data_abort_flags);
+			}
+		}
 
 		/* Wait until the client threads ends */
 		sceKernelWaitThreadEnd(client_thid, NULL, NULL);
@@ -883,9 +902,9 @@ static int client_thread(SceSize args, void *argp)
 			/* Delete itself from the client list */
 			client_list_delete(client);
 			break;
-		} else if (client->n_recv == SCE_NET_ERROR_ECANCELED) {
-			/* SCE_NET_ERROR_ECANCELED means socket shutdown */
-			DEBUG("Client %i socket shutdown\n", client->num);
+		} else if (client->n_recv == SCE_NET_ERROR_EINTR) {
+			/* Socket aborted (ftpvita_fini() called) */
+			INFO("Client %i socket aborted.\n", client->num);
 			break;
 		} else {
 			/* Other errors */
@@ -991,8 +1010,6 @@ static int server_thread(SceSize args, void *argp)
 
 			/* Start the client thread */
 			sceKernelStartThread(client_thid, sizeof(client), &client);
-
-			number_clients++;
 		} else {
 			/* if sceNetAccept returns < 0, it means that the listening
 			 * socket has been closed, this means that we want to
