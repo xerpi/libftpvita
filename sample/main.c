@@ -8,6 +8,7 @@
 #include <psp2/ctrl.h>
 #include <psp2/apputil.h>
 #include <psp2/sysmodule.h>
+#include <psp2/kernel/processmgr.h>
 
 #include <ftpvita.h>
 
