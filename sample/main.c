@@ -7,6 +7,7 @@
 #include <psp2/display.h>
 #include <psp2/ctrl.h>
 #include <psp2/apputil.h>
+#include <psp2/sysmodule.h>
 
 #include <ftpvita.h>
 
@@ -43,7 +44,8 @@ int main()
 	INFO("Press [] to exit\n");
 	console_set_color(WHITE);
 
-	// Init SceAppUtil
+	sceSysmoduleLoadModule(SCE_SYSMODULE_NET);
+
 	memset(&init_param, 0, sizeof(SceAppUtilInitParam));
 	memset(&boot_param, 0, sizeof(SceAppUtilBootParam));
 	sceAppUtilInit(&init_param, &boot_param);
@@ -73,7 +75,6 @@ int main()
 
 	ftpvita_add_device("cache0:");
 
-	// Mount music0: and photo0:
 	if (sceAppUtilMusicMount() == 0)
 		ftpvita_add_device("music0:");
 	if (sceAppUtilPhotoMount() == 0)
@@ -94,14 +95,12 @@ int main()
 	INFO("Exiting...\n");
 	ftpvita_fini();
 
-	// Unmount
 	sceAppUtilPhotoUmount();
 	sceAppUtilMusicUmount();
-
-	// Shutdown AppUtil
 	sceAppUtilShutdown();
 
 	console_fini();
 	end_video();
+	sceKernelExitProcess(0);
 	return 0;
 }
