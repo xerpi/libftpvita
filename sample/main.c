@@ -36,6 +36,9 @@ int main()
 	SceAppUtilInitParam init_param;
 	SceAppUtilBootParam boot_param;
 
+	sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DISABLE_AUTO_SUSPEND);
+	sceKernelPowerTick(SCE_KERNEL_POWER_TICK_DISABLE_OLED_OFF);
+
 	init_video();
 	console_init();
 
@@ -74,7 +77,9 @@ int main()
 		console_set_y(y);
 	}
 
-	ftpvita_add_device("cache0:");
+	ftpvita_add_device("app0:");
+	ftpvita_add_device("ux0:");
+	ftpvita_add_device("ur0:");
 
 	if (sceAppUtilMusicMount() == 0)
 		ftpvita_add_device("music0:");

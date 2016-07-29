@@ -1,43 +1,42 @@
-#
-# Copyright (c) 2015 Sergi Granell (xerpi)
-# based on Cirne's vita-toolchain test Makefile
-#
-
-TARGET = FTPVita
-OBJS   = main.o console.o draw.o font_data.o
+TITLE_ID = XERP00002
+TARGET   = FTPVita
+OBJS     = main.o console.o draw.o font_data.o
 
 LIBS = -lftpvita -lc -lSceKernel_stub -lSceDisplay_stub -lSceGxm_stub	\
-	-lSceNet_stub -lSceNetCtl_stub -lSceCtrl_stub -lSceAppUtil_stub
+	-lSceNet_stub -lSceNetCtl_stub -lSceCtrl_stub -lSceAppUtil_stub \
+	-lSceSysmodule_stub
 
 PREFIX  = arm-vita-eabi
 CC      = $(PREFIX)-gcc
-READELF = $(PREFIX)-readelf
-OBJDUMP = $(PREFIX)-objdump
 CFLAGS  = -Wl,-q -Wall -O3
 ASFLAGS = $(CFLAGS)
 
-all: $(TARGET).velf
+all: $(TARGET).vpk
 
 debug: CFLAGS += -DSHOW_DEBUG=1
 debug: all
 
+%.vpk: eboot.bin
+	vita-mksfoex -s TITLE_ID=$(TITLE_ID) "$(TARGET)" param.sfo
+	vita-pack-vpk -s param.sfo -b eboot.bin $@
+
+eboot.bin: $(TARGET).velf
+	vita-make-fself $< $@
+
 %.velf: %.elf
-	$(PREFIX)-strip -g $<
-	vita-elf-create $< $@ > /dev/null
+	vita-elf-create $< $@
 
 $(TARGET).elf: $(OBJS)
 	$(CC) $(CFLAGS) $^ $(LIBS) -o $@
 
 clean:
-	@rm -rf $(TARGET).velf $(TARGET).elf $(OBJS)
+	@rm -rf $(TARGET).vpk $(TARGET).velf $(TARGET).elf $(OBJS) \
+		eboot.bin param.sfo
 
-copy: $(TARGET).velf
-	@cp $(TARGET).velf ~/shared/vitasample.elf
-	@echo "Copied!"
-
-send: $(TARGET).velf
-	curl -T $(TARGET).velf ftp://$(PSVITAIP):1337/cache0:/
+vpksend: $(TARGET).vpk
+	curl -T $(TARGET).vpk ftp://$(PSVITAIP):1337/ux0:/
 	@echo "Sent."
 
-run: $(TARGET).velf
-	@sh run_homebrew_unity.sh $(TARGET).velf
+send: eboot.bin
+	curl -T eboot.bin ftp://$(PSVITAIP):1337/ux0:/app/$(TITLE_ID)/
+	@echo "Sent."
