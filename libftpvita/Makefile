@@ -1,9 +1,9 @@
 TARGET_LIB = libftpvita.a
 OBJS       = ftpvita.o
 
-PREFIX  = arm-vita-eabi
-CC      = $(PREFIX)-gcc
-AR      = $(PREFIX)-ar
+PREFIX  ?= $(VITASDK)/arm-vita-eabi
+CC      = arm-vita-eabi-gcc
+AR      = arm-vita-eabi-ar
 CFLAGS  = -Wl,-q -Wall -O3
 ASFLAGS = $(CFLAGS)
 
@@ -19,6 +19,8 @@ clean:
 	@rm -rf $(TARGET_LIB) $(OBJS)
 
 install: $(TARGET_LIB)
-	@cp $(TARGET_LIB) $(VITASDK)/arm-vita-eabi/lib
-	@cp ftpvita.h $(VITASDK)/arm-vita-eabi/include
+	@mkdir -p $(DESTDIR)$(PREFIX)/lib/
+	@cp $(TARGET_LIB) $(DESTDIR)$(PREFIX)/lib/
+	@mkdir -p $(DESTDIR)$(PREFIX)/include/
+	@cp ftpvita.h $(DESTDIR)$(PREFIX)/include/
 	@echo "Installed!"
