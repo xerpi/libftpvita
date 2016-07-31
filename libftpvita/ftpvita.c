@@ -626,11 +626,56 @@ static void receive_file(ClientInfo *client, const char *path)
 	}
 }
 
+static void append_file(ClientInfo *client, const char *path)
+{
+	unsigned char *buffer;
+	SceUID fd;
+	int bytes_recv;
+
+	DEBUG("Append: %s\n", path);
+
+	if ((fd = sceIoOpen(path, SCE_O_WRONLY|SCE_O_CREAT, 0777)) >= 0) {
+		sceIoLseek(fd, 0, SEEK_END);
+
+		buffer = malloc(FILE_BUF_SIZE);
+		if (buffer == NULL) {
+			client_send_ctrl_msg(client, "550 Could not allocate memory.\n");
+			return;
+		}
+
+		client_open_data_connection(client);
+		client_send_ctrl_msg(client, "150 Opening Image mode data transfer.\n");
+
+		while ((bytes_recv = client_recv_data_raw(client, buffer, FILE_BUF_SIZE)) > 0) {
+			sceIoWrite(fd, buffer, bytes_recv);
+		}
+
+		sceIoClose(fd);
+		free(buffer);
+		if (bytes_recv == 0) {
+			client_send_ctrl_msg(client, "226 Transfer completed.\n");
+		} else {
+			sceIoRemove(path);
+			client_send_ctrl_msg(client, "426 Connection closed; transfer aborted.\n");
+		}
+		client_close_data_connection(client);
+	} else {
+		client_send_ctrl_msg(client, "550 File not found.\n");
+	}
+}
+
 static void cmd_STOR_func(ClientInfo *client)
 {
 	char dest_path[PATH_MAX];
 	gen_filepath(client, dest_path);
 	receive_file(client, get_vita_path(dest_path));
+}
+
+static void cmd_APPE_func(ClientInfo *client)
+{
+	char dest_path[PATH_MAX];
+	gen_filepath(client, dest_path);
+	append_file(client, get_vita_path(dest_path));
 }
 
 static void delete_file(ClientInfo *client, const char *path)
@@ -765,6 +810,7 @@ static const cmd_dispatch_entry cmd_dispatch_table[] = {
 	add_entry(CDUP),
 	add_entry(RETR),
 	add_entry(STOR),
+	add_entry(APPE),
 	add_entry(DELE),
 	add_entry(RMD),
 	add_entry(MKD),
