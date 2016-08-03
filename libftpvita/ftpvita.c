@@ -372,16 +372,17 @@ static void send_LIST(ClientInfo *client, const char *path)
 		for (i = 0; i < MAX_DEVICES; i++) {
 			if (device_list[i].valid) {
 				devname = device_list[i].name;
-				sceIoGetstat(devname, &stat);
-				gen_list_format(buffer, sizeof(buffer),
-					1,
-					stat.st_size,
-					stat.st_mtime.month,
-					stat.st_mtime.day,
-					stat.st_mtime.hour,
-					stat.st_mtime.minute,
-					devname);
-				client_send_data_msg(client, buffer);
+				if (sceIoGetstat(devname, &stat) >= 0) {
+					gen_list_format(buffer, sizeof(buffer),
+						1,
+						stat.st_size,
+						stat.st_mtime.month,
+						stat.st_mtime.day,
+						stat.st_mtime.hour,
+						stat.st_mtime.minute,
+						devname);
+					client_send_data_msg(client, buffer);
+				}
 			}
 		}
 	} else {
