@@ -333,7 +333,7 @@ static int gen_list_format(char *out, int n, int dir, unsigned int file_size,
 		dir ? 'd' : '-',
 		dir ? "rwxr-xr-x" : "rw-r--r--",
 		file_size,
-		num_to_month[(month_n-1)%12],
+		num_to_month[month_n<=0?0:(month_n-1)%12],
 		day_n,
 		hour,
 		minute,
@@ -372,16 +372,17 @@ static void send_LIST(ClientInfo *client, const char *path)
 		for (i = 0; i < MAX_DEVICES; i++) {
 			if (device_list[i].valid) {
 				devname = device_list[i].name;
-				sceIoGetstat(devname, &stat);
-				gen_list_format(buffer, sizeof(buffer),
-					1,
-					stat.st_size,
-					stat.st_mtime.month,
-					stat.st_mtime.day,
-					stat.st_mtime.hour,
-					stat.st_mtime.minute,
-					devname);
-				client_send_data_msg(client, buffer);
+				if (sceIoGetstat(devname, &stat) >= 0) {
+					gen_list_format(buffer, sizeof(buffer),
+						1,
+						stat.st_size,
+						stat.st_mtime.month,
+						stat.st_mtime.day,
+						stat.st_mtime.hour,
+						stat.st_mtime.minute,
+						devname);
+					client_send_data_msg(client, buffer);
+				}
 			}
 		}
 	} else {
