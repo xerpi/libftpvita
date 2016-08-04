@@ -746,7 +746,7 @@ static void cmd_SIZE_func(ClientInfo *client)
 		return;
 	}
 	/* Send the size of the file */
-	sprintf(cmd, "213: %lld\n", stat.st_size);
+	sprintf(cmd, "213 %lld\n", stat.st_size);
 	client_send_ctrl_msg(client, cmd);
 }
 
