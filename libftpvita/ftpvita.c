@@ -69,6 +69,8 @@ typedef struct ClientInfo {
 	/* Client list */
 	struct ClientInfo *next;
 	struct ClientInfo *prev;
+	/* Offset for transfer resume */
+	int restore_point;
 } ClientInfo;
 
 typedef void (*cmd_dispatch_func)(ClientInfo *client);
@@ -542,7 +544,9 @@ static void send_file(ClientInfo *client, const char *path)
 	DEBUG("Opening: %s\n", path);
 
 	if ((fd = sceIoOpen(path, SCE_O_RDONLY, 0777)) >= 0) {
-
+		
+		sceIoLseek32(fd, client->restore_point, SCE_SEEK_SET);
+		
 		buffer = malloc(file_buf_size);
 		if (buffer == NULL) {
 			client_send_ctrl_msg(client, "550 Could not allocate memory.\n");
@@ -558,6 +562,7 @@ static void send_file(ClientInfo *client, const char *path)
 
 		sceIoClose(fd);
 		free(buffer);
+		client->restore_point = 0;
 		client_send_ctrl_msg(client, "226 Transfer completed.\n");
 		client_close_data_connection(client);
 
@@ -597,9 +602,19 @@ static void receive_file(ClientInfo *client, const char *path)
 	int bytes_recv;
 
 	DEBUG("Opening: %s\n", path);
-
-	if ((fd = sceIoOpen(path, SCE_O_CREAT | SCE_O_WRONLY | SCE_O_TRUNC, 0777)) >= 0) {
-
+	
+	int mode = SCE_O_CREAT | SCE_O_RDWR;
+	/* if we resume broken - append missing part 
+	 * else - overwrite file */
+	if (client->restore_point) {
+		mode = mode | SCE_O_APPEND;
+	}
+	else {
+		mode = mode | SCE_O_TRUNC;
+	}
+		
+	if ((fd = sceIoOpen(path, mode, 0777)) >= 0) {
+		
 		buffer = malloc(file_buf_size);
 		if (buffer == NULL) {
 			client_send_ctrl_msg(client, "550 Could not allocate memory.\n");
@@ -615,6 +630,7 @@ static void receive_file(ClientInfo *client, const char *path)
 
 		sceIoClose(fd);
 		free(buffer);
+		client->restore_point = 0;
 		if (bytes_recv == 0) {
 			client_send_ctrl_msg(client, "226 Transfer completed.\n");
 		} else {
@@ -751,6 +767,34 @@ static void cmd_SIZE_func(ClientInfo *client)
 	client_send_ctrl_msg(client, cmd);
 }
 
+static void cmd_REST_func(ClientInfo *client)
+{	
+	char cmd[64];
+	sscanf(client->recv_buffer, "%*[^ ] %d", &client->restore_point);
+	sprintf(cmd, "350 Resuming at %d\n", client->restore_point);
+	client_send_ctrl_msg(client, cmd);
+}
+
+static void cmd_FEAT_func(ClientInfo *client)
+{	
+	/*So client would know that we support resume */
+	client_send_ctrl_msg(client, "211-extensions\n");
+	client_send_ctrl_msg(client, "REST STREAM\n");
+	client_send_ctrl_msg(client, "211-end\n");
+}
+
+static void cmd_APPE_func(ClientInfo *client)
+{	
+	/* set restore point to not 0
+	restore point numeric value only matters if we RETR file from vita.
+	If we STOR or APPE, it is only used to indicate that we want to resume 
+	a broken transfer */
+	client->restore_point = -1;
+	char dest_path[PATH_MAX];
+	gen_filepath(client, dest_path);
+	receive_file(client, get_vita_path(dest_path));
+}
+
 #define add_entry(name) {#name, cmd_##name##_func}
 static const cmd_dispatch_entry cmd_dispatch_table[] = {
 	add_entry(NOOP),
@@ -773,6 +817,9 @@ static const cmd_dispatch_entry cmd_dispatch_table[] = {
 	add_entry(RNFR),
 	add_entry(RNTO),
 	add_entry(SIZE),
+	add_entry(REST),
+	add_entry(FEAT),
+	add_entry(APPE),
 	{NULL, NULL}
 };
 
@@ -802,7 +849,7 @@ static void client_list_add(ClientInfo *client)
 		client->prev = NULL;
 		client_list = client;
 	}
-
+	client->restore_point = 0;
 	number_clients++;
 
 	sceKernelUnlockMutex(client_list_mtx, 1);
