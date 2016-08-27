@@ -24,7 +24,7 @@
 
 #define FTP_PORT 1337
 #define NET_INIT_SIZE (64 * 1024)
-#define FILE_BUF_SIZE (4 * 1024 * 1024)
+#define DEFAULT_FILE_BUF_SIZE (4 * 1024 * 1024)
 
 #define FTP_DEFAULT_PATH   "/"
 
@@ -85,6 +85,7 @@ static struct {
 
 static void *net_memory = NULL;
 static int ftp_initialized = 0;
+static unsigned int file_buf_size = DEFAULT_FILE_BUF_SIZE;
 static SceNetInAddr vita_addr;
 static SceUID server_thid;
 static int server_sockfd;
@@ -542,7 +543,7 @@ static void send_file(ClientInfo *client, const char *path)
 
 	if ((fd = sceIoOpen(path, SCE_O_RDONLY, 0777)) >= 0) {
 
-		buffer = malloc(FILE_BUF_SIZE);
+		buffer = malloc(file_buf_size);
 		if (buffer == NULL) {
 			client_send_ctrl_msg(client, "550 Could not allocate memory.\n");
 			return;
@@ -551,7 +552,7 @@ static void send_file(ClientInfo *client, const char *path)
 		client_open_data_connection(client);
 		client_send_ctrl_msg(client, "150 Opening Image mode data transfer.\n");
 
-		while ((bytes_read = sceIoRead (fd, buffer, FILE_BUF_SIZE)) > 0) {
+		while ((bytes_read = sceIoRead (fd, buffer, file_buf_size)) > 0) {
 			client_send_data_raw(client, buffer, bytes_read);
 		}
 
@@ -599,7 +600,7 @@ static void receive_file(ClientInfo *client, const char *path)
 
 	if ((fd = sceIoOpen(path, SCE_O_CREAT | SCE_O_WRONLY | SCE_O_TRUNC, 0777)) >= 0) {
 
-		buffer = malloc(FILE_BUF_SIZE);
+		buffer = malloc(file_buf_size);
 		if (buffer == NULL) {
 			client_send_ctrl_msg(client, "550 Could not allocate memory.\n");
 			return;
@@ -608,7 +609,7 @@ static void receive_file(ClientInfo *client, const char *path)
 		client_open_data_connection(client);
 		client_send_ctrl_msg(client, "150 Opening Image mode data transfer.\n");
 
-		while ((bytes_recv = client_recv_data_raw(client, buffer, FILE_BUF_SIZE)) > 0) {
+		while ((bytes_recv = client_recv_data_raw(client, buffer, file_buf_size)) > 0) {
 			sceIoWrite(fd, buffer, bytes_recv);
 		}
 
@@ -1191,4 +1192,9 @@ void ftpvita_set_info_log_cb(ftpvita_log_cb_t cb)
 void ftpvita_set_debug_log_cb(ftpvita_log_cb_t cb)
 {
 	debug_log_cb = cb;
+}
+
+void ftpvita_set_file_buf_size(unsigned int size)
+{
+	file_buf_size = size;
 }
