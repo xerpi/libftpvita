@@ -332,7 +332,7 @@ static int gen_list_format(char *out, int n, int dir, unsigned int file_size,
 	};
 
 	return snprintf(out, n,
-		"%c%s 1 vita vita %d %s %-2d %02d:%02d %s\r\n",
+		"%c%s 1 vita vita %u %s %-2d %02d:%02d %s\r\n",
 		dir ? 'd' : '-',
 		dir ? "rwxr-xr-x" : "rw-r--r--",
 		file_size,
