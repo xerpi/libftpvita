@@ -70,7 +70,7 @@ typedef struct ClientInfo {
 	struct ClientInfo *next;
 	struct ClientInfo *prev;
 	/* Offset for transfer resume */
-	int restore_point;
+	unsigned int restore_point;
 } ClientInfo;
 
 typedef void (*cmd_dispatch_func)(ClientInfo *client);
@@ -780,7 +780,7 @@ static void cmd_FEAT_func(ClientInfo *client)
 	/*So client would know that we support resume */
 	client_send_ctrl_msg(client, "211-extensions\n");
 	client_send_ctrl_msg(client, "REST STREAM\n");
-	client_send_ctrl_msg(client, "211-end\n");
+	client_send_ctrl_msg(client, "211 end\n");
 }
 
 static void cmd_APPE_func(ClientInfo *client)
