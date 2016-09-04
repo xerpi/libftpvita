@@ -2,6 +2,8 @@
  * Copyright (c) 2015-2016 Sergi Granell (xerpi)
  */
 
+#include "ftpvita.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -15,8 +17,6 @@
 
 #include <psp2/net/net.h>
 #include <psp2/net/netctl.h>
-
-#include "ftpvita.h"
 
 #define UNUSED(x) (void)(x)
 

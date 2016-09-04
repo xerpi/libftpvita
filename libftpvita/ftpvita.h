@@ -6,6 +6,9 @@
 #define FTPVITA_H
 
 #include <psp2/types.h>
+#include <sys/syslimits.h>
+#include <psp2/net/net.h>
+#include <psp2/net/netctl.h>
 
 typedef void (*ftpvita_log_cb_t)(const char *);
 
