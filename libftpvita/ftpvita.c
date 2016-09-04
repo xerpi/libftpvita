@@ -29,6 +29,7 @@
 #define FTP_DEFAULT_PATH   "/"
 
 #define MAX_DEVICES 16
+#define MAX_CUSTOM_COMMANDS 16
 
 /* PSVita paths are in the form:
  *     <device name>:<filename in device>
@@ -36,44 +37,6 @@
  * We will send Unix-like paths to the FTP client, like:
  *     /cache0:/foo/bar
  */
-
-typedef enum {
-	FTP_DATA_CONNECTION_NONE,
-	FTP_DATA_CONNECTION_ACTIVE,
-	FTP_DATA_CONNECTION_PASSIVE,
-} DataConnectionType;
-
-typedef struct ClientInfo {
-	/* Client number */
-	int num;
-	/* Thread UID */
-	SceUID thid;
-	/* Control connection socket FD */
-	int ctrl_sockfd;
-	/* Data connection attributes */
-	int data_sockfd;
-	DataConnectionType data_con_type;
-	SceNetSockaddrIn data_sockaddr;
-	/* PASV mode client socket */
-	SceNetSockaddrIn pasv_sockaddr;
-	int pasv_sockfd;
-	/* Remote client net info */
-	SceNetSockaddrIn addr;
-	/* Receive buffer attributes */
-	int n_recv;
-	char recv_buffer[512];
-	/* Current working directory */
-	char cur_path[PATH_MAX];
-	/* Rename path */
-	char rename_path[PATH_MAX];
-	/* Client list */
-	struct ClientInfo *next;
-	struct ClientInfo *prev;
-	/* Offset for transfer resume */
-	unsigned int restore_point;
-} ClientInfo;
-
-typedef void (*cmd_dispatch_func)(ClientInfo *client);
 
 typedef struct {
 	const char *cmd;
@@ -85,6 +48,12 @@ static struct {
 	int valid;
 } device_list[MAX_DEVICES];
 
+static struct {
+	const char *cmd;
+	cmd_dispatch_func func;
+	int valid;
+} custom_command_dispatchers[MAX_CUSTOM_COMMANDS];
+
 static void *net_memory = NULL;
 static int ftp_initialized = 0;
 static unsigned int file_buf_size = DEFAULT_FILE_BUF_SIZE;
@@ -92,7 +61,7 @@ static SceNetInAddr vita_addr;
 static SceUID server_thid;
 static int server_sockfd;
 static int number_clients = 0;
-static ClientInfo *client_list = NULL;
+static ftpvita_client_info_t *client_list = NULL;
 static SceUID client_list_mtx;
 
 static int netctl_init = -1;
@@ -119,7 +88,7 @@ static void log_func(ftpvita_log_cb_t log_cb, const char *s, ...)
 #define client_send_ctrl_msg(cl, str) \
 	sceNetSend(cl->ctrl_sockfd, str, strlen(str), 0)
 
-static inline void client_send_data_msg(ClientInfo *client, const char *str)
+static inline void client_send_data_msg(ftpvita_client_info_t *client, const char *str)
 {
 	if (client->data_con_type == FTP_DATA_CONNECTION_ACTIVE) {
 		sceNetSend(client->data_sockfd, str, strlen(str), 0);
@@ -128,7 +97,7 @@ static inline void client_send_data_msg(ClientInfo *client, const char *str)
 	}
 }
 
-static inline int client_recv_data_raw(ClientInfo *client, void *buf, unsigned int len)
+static inline int client_recv_data_raw(ftpvita_client_info_t *client, void *buf, unsigned int len)
 {
 	if (client->data_con_type == FTP_DATA_CONNECTION_ACTIVE) {
 		return sceNetRecv(client->data_sockfd, buf, len, 0);
@@ -137,7 +106,7 @@ static inline int client_recv_data_raw(ClientInfo *client, void *buf, unsigned i
 	}
 }
 
-static inline void client_send_data_raw(ClientInfo *client, const void *buf, unsigned int len)
+static inline void client_send_data_raw(ftpvita_client_info_t *client, const void *buf, unsigned int len)
 {
 	if (client->data_con_type == FTP_DATA_CONNECTION_ACTIVE) {
 		sceNetSend(client->data_sockfd, buf, len, 0);
@@ -155,32 +124,32 @@ static inline const char *get_vita_path(const char *path)
 		return NULL;
 }
 
-static void cmd_NOOP_func(ClientInfo *client)
+static void cmd_NOOP_func(ftpvita_client_info_t *client)
 {
 	client_send_ctrl_msg(client, "200 No operation ;)\n");
 }
 
-static void cmd_USER_func(ClientInfo *client)
+static void cmd_USER_func(ftpvita_client_info_t *client)
 {
 	client_send_ctrl_msg(client, "331 Username OK, need password b0ss.\n");
 }
 
-static void cmd_PASS_func(ClientInfo *client)
+static void cmd_PASS_func(ftpvita_client_info_t *client)
 {
 	client_send_ctrl_msg(client, "230 User logged in!\n");
 }
 
-static void cmd_QUIT_func(ClientInfo *client)
+static void cmd_QUIT_func(ftpvita_client_info_t *client)
 {
 	client_send_ctrl_msg(client, "221 Goodbye senpai :'(\n");
 }
 
-static void cmd_SYST_func(ClientInfo *client)
+static void cmd_SYST_func(ftpvita_client_info_t *client)
 {
 	client_send_ctrl_msg(client, "215 UNIX Type: L8\n");
 }
 
-static void cmd_PASV_func(ClientInfo *client)
+static void cmd_PASV_func(ftpvita_client_info_t *client)
 {
 	int ret;
 	UNUSED(ret);
@@ -240,7 +209,7 @@ static void cmd_PASV_func(ClientInfo *client)
 	client->data_con_type = FTP_DATA_CONNECTION_PASSIVE;
 }
 
-static void cmd_PORT_func(ClientInfo *client)
+static void cmd_PORT_func(ftpvita_client_info_t *client)
 {
 	unsigned int data_ip[4];
 	unsigned int porthi, portlo;
@@ -289,7 +258,7 @@ static void cmd_PORT_func(ClientInfo *client)
 	client_send_ctrl_msg(client, "200 PORT command successful!\n");
 }
 
-static void client_open_data_connection(ClientInfo *client)
+static void client_open_data_connection(ftpvita_client_info_t *client)
 {
 	int ret;
 	UNUSED(ret);
@@ -313,7 +282,7 @@ static void client_open_data_connection(ClientInfo *client)
 	}
 }
 
-static void client_close_data_connection(ClientInfo *client)
+static void client_close_data_connection(ftpvita_client_info_t *client)
 {
 	sceNetSocketClose(client->data_sockfd);
 	/* In passive mode we have to close the client pasv socket too */
@@ -343,7 +312,7 @@ static int gen_list_format(char *out, int n, int dir, unsigned int file_size,
 		filename);
 }
 
-static void send_LIST(ClientInfo *client, const char *path)
+static void send_LIST(ftpvita_client_info_t *client, const char *path)
 {
 	int i;
 	char buffer[512];
@@ -415,7 +384,7 @@ static void send_LIST(ClientInfo *client, const char *path)
 	client_send_ctrl_msg(client, "226 Transfer complete.\n");
 }
 
-static void cmd_LIST_func(ClientInfo *client)
+static void cmd_LIST_func(ftpvita_client_info_t *client)
 {
 	char list_path[PATH_MAX];
 
@@ -428,7 +397,7 @@ static void cmd_LIST_func(ClientInfo *client)
 	}
 }
 
-static void cmd_PWD_func(ClientInfo *client)
+static void cmd_PWD_func(ftpvita_client_info_t *client)
 {
 	char msg[PATH_MAX];
 	sprintf(msg, "257 \"%s\" is the current directory.\n", client->cur_path);
@@ -460,7 +429,7 @@ static void dir_up(char *path)
 	}
 }
 
-static void cmd_CWD_func(ClientInfo *client)
+static void cmd_CWD_func(ftpvita_client_info_t *client)
 {
 	char cmd_path[PATH_MAX];
 	char tmp_path[PATH_MAX];
@@ -506,7 +475,7 @@ static void cmd_CWD_func(ClientInfo *client)
 	}
 }
 
-static void cmd_TYPE_func(ClientInfo *client)
+static void cmd_TYPE_func(ftpvita_client_info_t *client)
 {
 	char data_type;
 	char format_control[8];
@@ -529,13 +498,13 @@ static void cmd_TYPE_func(ClientInfo *client)
 	}
 }
 
-static void cmd_CDUP_func(ClientInfo *client)
+static void cmd_CDUP_func(ftpvita_client_info_t *client)
 {
 	dir_up(client->cur_path);
 	client_send_ctrl_msg(client, "200 Command okay.\n");
 }
 
-static void send_file(ClientInfo *client, const char *path)
+static void send_file(ftpvita_client_info_t *client, const char *path)
 {
 	unsigned char *buffer;
 	SceUID fd;
@@ -573,7 +542,7 @@ static void send_file(ClientInfo *client, const char *path)
 
 /* This function generates an FTP valid path with the input path
  * from RETR, STOR, DELE, RMD, MKD, RNFR and RNTO commands */
-static void gen_filepath(ClientInfo *client, char *dest_path)
+static void gen_filepath(ftpvita_client_info_t *client, char *dest_path)
 {
 	char cmd_path[PATH_MAX];
 	sscanf(client->recv_buffer, "%*[^ ] %[^\r\n\t]", cmd_path);
@@ -588,14 +557,14 @@ static void gen_filepath(ClientInfo *client, char *dest_path)
 	}
 }
 
-static void cmd_RETR_func(ClientInfo *client)
+static void cmd_RETR_func(ftpvita_client_info_t *client)
 {
 	char dest_path[PATH_MAX];
 	gen_filepath(client, dest_path);
 	send_file(client, get_vita_path(dest_path));
 }
 
-static void receive_file(ClientInfo *client, const char *path)
+static void receive_file(ftpvita_client_info_t *client, const char *path)
 {
 	unsigned char *buffer;
 	SceUID fd;
@@ -644,14 +613,14 @@ static void receive_file(ClientInfo *client, const char *path)
 	}
 }
 
-static void cmd_STOR_func(ClientInfo *client)
+static void cmd_STOR_func(ftpvita_client_info_t *client)
 {
 	char dest_path[PATH_MAX];
 	gen_filepath(client, dest_path);
 	receive_file(client, get_vita_path(dest_path));
 }
 
-static void delete_file(ClientInfo *client, const char *path)
+static void delete_file(ftpvita_client_info_t *client, const char *path)
 {
 	DEBUG("Deleting: %s\n", path);
 
@@ -662,14 +631,14 @@ static void delete_file(ClientInfo *client, const char *path)
 	}
 }
 
-static void cmd_DELE_func(ClientInfo *client)
+static void cmd_DELE_func(ftpvita_client_info_t *client)
 {
 	char dest_path[PATH_MAX];
 	gen_filepath(client, dest_path);
 	delete_file(client, get_vita_path(dest_path));
 }
 
-static void delete_dir(ClientInfo *client, const char *path)
+static void delete_dir(ftpvita_client_info_t *client, const char *path)
 {
 	int ret;
 	DEBUG("Deleting: %s\n", path);
@@ -683,14 +652,14 @@ static void delete_dir(ClientInfo *client, const char *path)
 	}
 }
 
-static void cmd_RMD_func(ClientInfo *client)
+static void cmd_RMD_func(ftpvita_client_info_t *client)
 {
 	char dest_path[PATH_MAX];
 	gen_filepath(client, dest_path);
 	delete_dir(client, get_vita_path(dest_path));
 }
 
-static void create_dir(ClientInfo *client, const char *path)
+static void create_dir(ftpvita_client_info_t *client, const char *path)
 {
 	DEBUG("Creating: %s\n", path);
 
@@ -701,7 +670,7 @@ static void create_dir(ClientInfo *client, const char *path)
 	}
 }
 
-static void cmd_MKD_func(ClientInfo *client)
+static void cmd_MKD_func(ftpvita_client_info_t *client)
 {
 	char dest_path[PATH_MAX];
 	gen_filepath(client, dest_path);
@@ -714,7 +683,7 @@ static int file_exists(const char *path)
 	return (sceIoGetstat(path, &stat) >= 0);
 }
 
-static void cmd_RNFR_func(ClientInfo *client)
+static void cmd_RNFR_func(ftpvita_client_info_t *client)
 {
 	char path_src[PATH_MAX];
 	const char *vita_path_src;
@@ -732,7 +701,7 @@ static void cmd_RNFR_func(ClientInfo *client)
 	client_send_ctrl_msg(client, "250 I need the destination name b0ss.\n");
 }
 
-static void cmd_RNTO_func(ClientInfo *client)
+static void cmd_RNTO_func(ftpvita_client_info_t *client)
 {
 	char path_dst[PATH_MAX];
 	const char *vita_path_dst;
@@ -749,7 +718,7 @@ static void cmd_RNTO_func(ClientInfo *client)
 	client_send_ctrl_msg(client, "226 Rename completed.\n");
 }
 
-static void cmd_SIZE_func(ClientInfo *client)
+static void cmd_SIZE_func(ftpvita_client_info_t *client)
 {
 	SceIoStat stat;
 	char path[PATH_MAX];
@@ -767,7 +736,7 @@ static void cmd_SIZE_func(ClientInfo *client)
 	client_send_ctrl_msg(client, cmd);
 }
 
-static void cmd_REST_func(ClientInfo *client)
+static void cmd_REST_func(ftpvita_client_info_t *client)
 {	
 	char cmd[64];
 	sscanf(client->recv_buffer, "%*[^ ] %d", &client->restore_point);
@@ -775,7 +744,7 @@ static void cmd_REST_func(ClientInfo *client)
 	client_send_ctrl_msg(client, cmd);
 }
 
-static void cmd_FEAT_func(ClientInfo *client)
+static void cmd_FEAT_func(ftpvita_client_info_t *client)
 {	
 	/*So client would know that we support resume */
 	client_send_ctrl_msg(client, "211-extensions\n");
@@ -783,7 +752,7 @@ static void cmd_FEAT_func(ClientInfo *client)
 	client_send_ctrl_msg(client, "211 end\n");
 }
 
-static void cmd_APPE_func(ClientInfo *client)
+static void cmd_APPE_func(ftpvita_client_info_t *client)
 {	
 	/* set restore point to not 0
 	restore point numeric value only matters if we RETR file from vita.
@@ -831,10 +800,18 @@ static cmd_dispatch_func get_dispatch_func(const char *cmd)
 			return cmd_dispatch_table[i].func;
 		}
 	}
+	// Check for custom commands
+	for(i = 0; i < MAX_CUSTOM_COMMANDS; i++) {
+		if (custom_command_dispatchers[i].valid) {
+			if (strcmp(cmd, custom_command_dispatchers[i].cmd) == 0) {
+				return custom_command_dispatchers[i].func;
+			}
+		}
+	}
 	return NULL;
 }
 
-static void client_list_add(ClientInfo *client)
+static void client_list_add(ftpvita_client_info_t *client)
 {
 	/* Add the client at the front of the client list */
 	sceKernelLockMutex(client_list_mtx, 1, NULL);
@@ -855,7 +832,7 @@ static void client_list_add(ClientInfo *client)
 	sceKernelUnlockMutex(client_list_mtx, 1);
 }
 
-static void client_list_delete(ClientInfo *client)
+static void client_list_delete(ftpvita_client_info_t *client)
 {
 	/* Remove the client from the client list */
 	sceKernelLockMutex(client_list_mtx, 1, NULL);
@@ -877,7 +854,7 @@ static void client_list_delete(ClientInfo *client)
 
 static void client_list_thread_end()
 {
-	ClientInfo *it, *next;
+	ftpvita_client_info_t *it, *next;
 	SceUID client_thid;
 	const int data_abort_flags = SCE_NET_SOCKET_ABORT_FLAG_RCV_PRESERVATION |
 				SCE_NET_SOCKET_ABORT_FLAG_SND_PRESERVATION;
@@ -917,7 +894,7 @@ static int client_thread(SceSize args, void *argp)
 {
 	char cmd[16];
 	cmd_dispatch_func dispatch_func;
-	ClientInfo *client = *(ClientInfo **)argp;
+	ftpvita_client_info_t *client = *(ftpvita_client_info_t **)argp;
 
 	DEBUG("Client thread %i started!\n", client->num);
 
@@ -1045,8 +1022,8 @@ static int server_thread(SceSize args, void *argp)
 
 			DEBUG("Client %i thread UID: 0x%08X\n", number_clients, client_thid);
 
-			/* Allocate the ClientInfo struct for the new client */
-			ClientInfo *client = malloc(sizeof(*client));
+			/* Allocate the ftpvita_client_info_t struct for the new client */
+			ftpvita_client_info_t *client = malloc(sizeof(*client));
 			client->num = number_clients;
 			client->thid = client_thid;
 			client->ctrl_sockfd = client_sockfd;
@@ -1137,6 +1114,10 @@ int ftpvita_init(char *vita_ip, unsigned short int *vita_port)
 	/* Init device list */
 	for (i = 0; i < MAX_DEVICES; i++) {
 		device_list[i].valid = 0;
+	}
+
+	for (i = 0; i < MAX_CUSTOM_COMMANDS; i++) {
+		custom_command_dispatchers[i].valid = 0;
 	}
 
 	/* Start the server thread */
@@ -1244,4 +1225,40 @@ void ftpvita_set_debug_log_cb(ftpvita_log_cb_t cb)
 void ftpvita_set_file_buf_size(unsigned int size)
 {
 	file_buf_size = size;
+}
+
+int ftpvita_ext_add_custom_command(const char *cmd, cmd_dispatch_func func)
+{
+	int i;
+	for (i = 0; i < MAX_CUSTOM_COMMANDS; i++) {
+		if (!custom_command_dispatchers[i].valid) {
+			custom_command_dispatchers[i].cmd = cmd;
+			custom_command_dispatchers[i].func = func;
+			custom_command_dispatchers[i].valid = 1;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+int ftpvita_ext_del_custom_command(const char *cmd)
+{
+	int i;
+	for (i = 0; i < MAX_CUSTOM_COMMANDS; i++) {
+		if (strcmp(cmd, custom_command_dispatchers[i].cmd) == 0) {
+			custom_command_dispatchers[i].valid = 0;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+void ftpvita_ext_client_send_ctrl_msg(ftpvita_client_info_t *client, const char *msg)
+{
+	client_send_ctrl_msg(client, msg);
+}
+
+void ftpvita_ext_client_send_data_msg(ftpvita_client_info_t *client, const char *str)
+{
+	client_send_data_msg(client, str);
 }
