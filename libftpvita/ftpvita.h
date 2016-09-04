@@ -19,5 +19,13 @@ void ftpvita_set_info_log_cb(ftpvita_log_cb_t cb);
 void ftpvita_set_debug_log_cb(ftpvita_log_cb_t cb);
 void ftpvita_set_file_buf_size(unsigned int size);
 
+/* Extended functionality */
+
+typedef struct ClientInfo ClientInfo; // Opaque
+typedef void (*cmd_dispatch_func)(ClientInfo *client); // Command handler
+
+int ftpvita_ext_add_custom_command(const char *cmd, cmd_dispatch_func func);
+int ftpvita_ext_del_custom_command(const char *cmd);
+void ftpvita_ext_client_send_ctrl_msg(ClientInfo *client, const char *msg);
 
 #endif

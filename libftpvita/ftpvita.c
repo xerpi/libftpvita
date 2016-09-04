@@ -29,6 +29,7 @@
 #define FTP_DEFAULT_PATH   "/"
 
 #define MAX_DEVICES 16
+#define MAX_CUSTOM_COMMANDS 16
 
 /* PSVita paths are in the form:
  *     <device name>:<filename in device>
@@ -73,8 +74,6 @@ typedef struct ClientInfo {
 	unsigned int restore_point;
 } ClientInfo;
 
-typedef void (*cmd_dispatch_func)(ClientInfo *client);
-
 typedef struct {
 	const char *cmd;
 	cmd_dispatch_func func;
@@ -84,6 +83,12 @@ static struct {
 	char name[PATH_MAX];
 	int valid;
 } device_list[MAX_DEVICES];
+
+static struct {
+	const char *cmd;
+	cmd_dispatch_func func;
+	int valid;
+} custom_command_dispatchers[MAX_CUSTOM_COMMANDS];
 
 static void *net_memory = NULL;
 static int ftp_initialized = 0;
@@ -831,6 +836,14 @@ static cmd_dispatch_func get_dispatch_func(const char *cmd)
 			return cmd_dispatch_table[i].func;
 		}
 	}
+	// Check for custom commands
+	for(i = 0; i < MAX_CUSTOM_COMMANDS; i++) {
+		if (custom_command_dispatchers[i].valid) {
+			if (strcmp(cmd, custom_command_dispatchers[i].cmd) == 0) {
+				return custom_command_dispatchers[i].func;
+			}
+		}
+	}
 	return NULL;
 }
 
@@ -1139,6 +1152,10 @@ int ftpvita_init(char *vita_ip, unsigned short int *vita_port)
 		device_list[i].valid = 0;
 	}
 
+	for (i = 0; i < MAX_CUSTOM_COMMANDS; i++) {
+		custom_command_dispatchers[i].valid = 0;
+	}
+
 	/* Start the server thread */
 	sceKernelStartThread(server_thid, 0, NULL);
 
@@ -1245,3 +1262,35 @@ void ftpvita_set_file_buf_size(unsigned int size)
 {
 	file_buf_size = size;
 }
+
+int ftpvita_ext_add_custom_command(const char *cmd, cmd_dispatch_func func)
+{
+	int i;
+	for (i = 0; i < MAX_CUSTOM_COMMANDS; i++) {
+		if (!custom_command_dispatchers[i].valid) {
+			custom_command_dispatchers[i].cmd = cmd;
+			custom_command_dispatchers[i].func = func;
+			custom_command_dispatchers[i].valid = 1;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+int ftpvita_ext_del_custom_command(const char *cmd)
+{
+	int i;
+	for (i = 0; i < MAX_CUSTOM_COMMANDS; i++) {
+		if (strcmp(cmd, custom_command_dispatchers[i].cmd) == 0) {
+			custom_command_dispatchers[i].valid = 0;
+			return 1;
+		}
+	}
+	return 0;
+}
+
+void ftpvita_ext_client_send_ctrl_msg(ClientInfo *client, const char *msg)
+{
+	client_send_ctrl_msg(client, msg);
+}
+
