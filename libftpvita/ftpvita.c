@@ -126,27 +126,27 @@ static inline const char *get_vita_path(const char *path)
 
 static void cmd_NOOP_func(ftpvita_client_info_t *client)
 {
-	client_send_ctrl_msg(client, "200 No operation ;)\n");
+	client_send_ctrl_msg(client, "200 No operation ;)" FTPVITA_EOL);
 }
 
 static void cmd_USER_func(ftpvita_client_info_t *client)
 {
-	client_send_ctrl_msg(client, "331 Username OK, need password b0ss.\n");
+	client_send_ctrl_msg(client, "331 Username OK, need password b0ss." FTPVITA_EOL);
 }
 
 static void cmd_PASS_func(ftpvita_client_info_t *client)
 {
-	client_send_ctrl_msg(client, "230 User logged in!\n");
+	client_send_ctrl_msg(client, "230 User logged in!" FTPVITA_EOL);
 }
 
 static void cmd_QUIT_func(ftpvita_client_info_t *client)
 {
-	client_send_ctrl_msg(client, "221 Goodbye senpai :'(\n");
+	client_send_ctrl_msg(client, "221 Goodbye senpai :'(" FTPVITA_EOL);
 }
 
 static void cmd_SYST_func(ftpvita_client_info_t *client)
 {
-	client_send_ctrl_msg(client, "215 UNIX Type: L8\n");
+	client_send_ctrl_msg(client, "215 UNIX Type: L8" FTPVITA_EOL);
 }
 
 static void cmd_PASV_func(ftpvita_client_info_t *client)
@@ -195,7 +195,7 @@ static void cmd_PASV_func(ftpvita_client_info_t *client)
 	DEBUG("PASV mode port: 0x%04X\n", picked.sin_port);
 
 	/* Build the command */
-	sprintf(cmd, "227 Entering Passive Mode (%hhu,%hhu,%hhu,%hhu,%hhu,%hhu)\n",
+	sprintf(cmd, "227 Entering Passive Mode (%hhu,%hhu,%hhu,%hhu,%hhu,%hhu)" FTPVITA_EOL,
 		(vita_addr.s_addr >> 0) & 0xFF,
 		(vita_addr.s_addr >> 8) & 0xFF,
 		(vita_addr.s_addr >> 16) & 0xFF,
@@ -255,7 +255,7 @@ static void cmd_PORT_func(ftpvita_client_info_t *client)
 	/* Set the data connection type to active! */
 	client->data_con_type = FTP_DATA_CONNECTION_ACTIVE;
 
-	client_send_ctrl_msg(client, "200 PORT command successful!\n");
+	client_send_ctrl_msg(client, "200 PORT command successful!" FTPVITA_EOL);
 }
 
 static void client_open_data_connection(ftpvita_client_info_t *client)
@@ -301,7 +301,7 @@ static int gen_list_format(char *out, int n, int dir, unsigned int file_size,
 	};
 
 	return snprintf(out, n,
-		"%c%s 1 vita vita %u %s %-2d %02d:%02d %s\r\n",
+		"%c%s 1 vita vita %u %s %-2d %02d:%02d %s\r" FTPVITA_EOL,
 		dir ? 'd' : '-',
 		dir ? "rwxr-xr-x" : "rw-r--r--",
 		file_size,
@@ -331,12 +331,12 @@ static void send_LIST(ftpvita_client_info_t *client, const char *path)
 	if (!send_devices) {
 		dir = sceIoDopen(get_vita_path(path));
 		if (dir < 0) {
-			client_send_ctrl_msg(client, "550 Invalid directory.\n");
+			client_send_ctrl_msg(client, "550 Invalid directory." FTPVITA_EOL);
 			return;
 		}
 	}
 
-	client_send_ctrl_msg(client, "150 Opening ASCII mode data transfer for LIST.\n");
+	client_send_ctrl_msg(client, "150 Opening ASCII mode data transfer for LIST." FTPVITA_EOL);
 
 	client_open_data_connection(client);
 
@@ -381,7 +381,7 @@ static void send_LIST(ftpvita_client_info_t *client, const char *path)
 	DEBUG("Done sending LIST\n");
 
 	client_close_data_connection(client);
-	client_send_ctrl_msg(client, "226 Transfer complete.\n");
+	client_send_ctrl_msg(client, "226 Transfer complete." FTPVITA_EOL);
 }
 
 static void cmd_LIST_func(ftpvita_client_info_t *client)
@@ -400,7 +400,7 @@ static void cmd_LIST_func(ftpvita_client_info_t *client)
 static void cmd_PWD_func(ftpvita_client_info_t *client)
 {
 	char msg[PATH_MAX];
-	sprintf(msg, "257 \"%s\" is the current directory.\n", client->cur_path);
+	sprintf(msg, "257 \"%s\" is the current directory." FTPVITA_EOL, client->cur_path);
 	client_send_ctrl_msg(client, msg);
 }
 
@@ -437,7 +437,7 @@ static void cmd_CWD_func(ftpvita_client_info_t *client)
 	int n = sscanf(client->recv_buffer, "%*s %[^\r\n\t]", cmd_path);
 
 	if (n < 1) {
-		client_send_ctrl_msg(client, "500 Syntax error, command unrecognized.\n");
+		client_send_ctrl_msg(client, "500 Syntax error, command unrecognized." FTPVITA_EOL);
 	} else {
 		if (strcmp(cmd_path, "/") == 0) {
 			strcpy(client->cur_path, cmd_path);
@@ -464,14 +464,14 @@ static void cmd_CWD_func(ftpvita_client_info_t *client)
 				/* Check if the path exists */
 				pd = sceIoDopen(get_vita_path(tmp_path));
 				if (pd < 0) {
-					client_send_ctrl_msg(client, "550 Invalid directory.\n");
+					client_send_ctrl_msg(client, "550 Invalid directory." FTPVITA_EOL);
 					return;
 				}
 				sceIoDclose(pd);
 			}
 			strcpy(client->cur_path, tmp_path);
 		}
-		client_send_ctrl_msg(client, "250 Requested file action okay, completed.\n");
+		client_send_ctrl_msg(client, "250 Requested file action okay, completed." FTPVITA_EOL);
 	}
 }
 
@@ -485,23 +485,23 @@ static void cmd_TYPE_func(ftpvita_client_info_t *client)
 		switch(data_type) {
 		case 'A':
 		case 'I':
-			client_send_ctrl_msg(client, "200 Okay\n");
+			client_send_ctrl_msg(client, "200 Okay" FTPVITA_EOL);
 			break;
 		case 'E':
 		case 'L':
 		default:
-			client_send_ctrl_msg(client, "504 Error: bad parameters?\n");
+			client_send_ctrl_msg(client, "504 Error: bad parameters?" FTPVITA_EOL);
 			break;
 		}
 	} else {
-		client_send_ctrl_msg(client, "504 Error: bad parameters?\n");
+		client_send_ctrl_msg(client, "504 Error: bad parameters?" FTPVITA_EOL);
 	}
 }
 
 static void cmd_CDUP_func(ftpvita_client_info_t *client)
 {
 	dir_up(client->cur_path);
-	client_send_ctrl_msg(client, "200 Command okay.\n");
+	client_send_ctrl_msg(client, "200 Command okay." FTPVITA_EOL);
 }
 
 static void send_file(ftpvita_client_info_t *client, const char *path)
@@ -518,12 +518,12 @@ static void send_file(ftpvita_client_info_t *client, const char *path)
 		
 		buffer = malloc(file_buf_size);
 		if (buffer == NULL) {
-			client_send_ctrl_msg(client, "550 Could not allocate memory.\n");
+			client_send_ctrl_msg(client, "550 Could not allocate memory." FTPVITA_EOL);
 			return;
 		}
 
 		client_open_data_connection(client);
-		client_send_ctrl_msg(client, "150 Opening Image mode data transfer.\n");
+		client_send_ctrl_msg(client, "150 Opening Image mode data transfer." FTPVITA_EOL);
 
 		while ((bytes_read = sceIoRead (fd, buffer, file_buf_size)) > 0) {
 			client_send_data_raw(client, buffer, bytes_read);
@@ -532,11 +532,11 @@ static void send_file(ftpvita_client_info_t *client, const char *path)
 		sceIoClose(fd);
 		free(buffer);
 		client->restore_point = 0;
-		client_send_ctrl_msg(client, "226 Transfer completed.\n");
+		client_send_ctrl_msg(client, "226 Transfer completed." FTPVITA_EOL);
 		client_close_data_connection(client);
 
 	} else {
-		client_send_ctrl_msg(client, "550 File not found.\n");
+		client_send_ctrl_msg(client, "550 File not found." FTPVITA_EOL);
 	}
 }
 
@@ -586,12 +586,12 @@ static void receive_file(ftpvita_client_info_t *client, const char *path)
 		
 		buffer = malloc(file_buf_size);
 		if (buffer == NULL) {
-			client_send_ctrl_msg(client, "550 Could not allocate memory.\n");
+			client_send_ctrl_msg(client, "550 Could not allocate memory." FTPVITA_EOL);
 			return;
 		}
 
 		client_open_data_connection(client);
-		client_send_ctrl_msg(client, "150 Opening Image mode data transfer.\n");
+		client_send_ctrl_msg(client, "150 Opening Image mode data transfer." FTPVITA_EOL);
 
 		while ((bytes_recv = client_recv_data_raw(client, buffer, file_buf_size)) > 0) {
 			sceIoWrite(fd, buffer, bytes_recv);
@@ -601,15 +601,15 @@ static void receive_file(ftpvita_client_info_t *client, const char *path)
 		free(buffer);
 		client->restore_point = 0;
 		if (bytes_recv == 0) {
-			client_send_ctrl_msg(client, "226 Transfer completed.\n");
+			client_send_ctrl_msg(client, "226 Transfer completed." FTPVITA_EOL);
 		} else {
 			sceIoRemove(path);
-			client_send_ctrl_msg(client, "426 Connection closed; transfer aborted.\n");
+			client_send_ctrl_msg(client, "426 Connection closed; transfer aborted." FTPVITA_EOL);
 		}
 		client_close_data_connection(client);
 
 	} else {
-		client_send_ctrl_msg(client, "550 File not found.\n");
+		client_send_ctrl_msg(client, "550 File not found." FTPVITA_EOL);
 	}
 }
 
@@ -625,9 +625,9 @@ static void delete_file(ftpvita_client_info_t *client, const char *path)
 	DEBUG("Deleting: %s\n", path);
 
 	if (sceIoRemove(path) >= 0) {
-		client_send_ctrl_msg(client, "226 File deleted.\n");
+		client_send_ctrl_msg(client, "226 File deleted." FTPVITA_EOL);
 	} else {
-		client_send_ctrl_msg(client, "550 Could not delete the file.\n");
+		client_send_ctrl_msg(client, "550 Could not delete the file." FTPVITA_EOL);
 	}
 }
 
@@ -644,11 +644,11 @@ static void delete_dir(ftpvita_client_info_t *client, const char *path)
 	DEBUG("Deleting: %s\n", path);
 	ret = sceIoRmdir(path);
 	if (ret >= 0) {
-		client_send_ctrl_msg(client, "226 Directory deleted.\n");
+		client_send_ctrl_msg(client, "226 Directory deleted." FTPVITA_EOL);
 	} else if (ret == 0x8001005A) { /* DIRECTORY_IS_NOT_EMPTY */
-		client_send_ctrl_msg(client, "550 Directory is not empty.\n");
+		client_send_ctrl_msg(client, "550 Directory is not empty." FTPVITA_EOL);
 	} else {
-		client_send_ctrl_msg(client, "550 Could not delete the directory.\n");
+		client_send_ctrl_msg(client, "550 Could not delete the directory." FTPVITA_EOL);
 	}
 }
 
@@ -664,9 +664,9 @@ static void create_dir(ftpvita_client_info_t *client, const char *path)
 	DEBUG("Creating: %s\n", path);
 
 	if (sceIoMkdir(path, 0777) >= 0) {
-		client_send_ctrl_msg(client, "226 Directory created.\n");
+		client_send_ctrl_msg(client, "226 Directory created." FTPVITA_EOL);
 	} else {
-		client_send_ctrl_msg(client, "550 Could not create the directory.\n");
+		client_send_ctrl_msg(client, "550 Could not create the directory." FTPVITA_EOL);
 	}
 }
 
@@ -693,12 +693,12 @@ static void cmd_RNFR_func(ftpvita_client_info_t *client)
 
 	/* Check if the file exists */
 	if (!file_exists(vita_path_src)) {
-		client_send_ctrl_msg(client, "550 The file doesn't exist.\n");
+		client_send_ctrl_msg(client, "550 The file doesn't exist." FTPVITA_EOL);
 		return;
 	}
 	/* The file to be renamed is the received path */
 	strcpy(client->rename_path, vita_path_src);
-	client_send_ctrl_msg(client, "250 I need the destination name b0ss.\n");
+	client_send_ctrl_msg(client, "250 I need the destination name b0ss." FTPVITA_EOL);
 }
 
 static void cmd_RNTO_func(ftpvita_client_info_t *client)
@@ -712,10 +712,10 @@ static void cmd_RNTO_func(ftpvita_client_info_t *client)
 	DEBUG("Renaming: %s to %s\n", client->rename_path, vita_path_dst);
 
 	if (sceIoRename(client->rename_path, vita_path_dst) < 0) {
-		client_send_ctrl_msg(client, "550 Error renaming the file.\n");
+		client_send_ctrl_msg(client, "550 Error renaming the file." FTPVITA_EOL);
 	}
 
-	client_send_ctrl_msg(client, "226 Rename completed.\n");
+	client_send_ctrl_msg(client, "226 Rename completed." FTPVITA_EOL);
 }
 
 static void cmd_SIZE_func(ftpvita_client_info_t *client)
@@ -728,11 +728,11 @@ static void cmd_SIZE_func(ftpvita_client_info_t *client)
 
 	/* Check if the file exists */
 	if (sceIoGetstat(get_vita_path(path), &stat) < 0) {
-		client_send_ctrl_msg(client, "550 The file doesn't exist.\n");
+		client_send_ctrl_msg(client, "550 The file doesn't exist." FTPVITA_EOL);
 		return;
 	}
 	/* Send the size of the file */
-	sprintf(cmd, "213 %lld\n", stat.st_size);
+	sprintf(cmd, "213 %lld" FTPVITA_EOL, stat.st_size);
 	client_send_ctrl_msg(client, cmd);
 }
 
@@ -740,16 +740,16 @@ static void cmd_REST_func(ftpvita_client_info_t *client)
 {	
 	char cmd[64];
 	sscanf(client->recv_buffer, "%*[^ ] %d", &client->restore_point);
-	sprintf(cmd, "350 Resuming at %d\n", client->restore_point);
+	sprintf(cmd, "350 Resuming at %d" FTPVITA_EOL, client->restore_point);
 	client_send_ctrl_msg(client, cmd);
 }
 
 static void cmd_FEAT_func(ftpvita_client_info_t *client)
 {	
 	/*So client would know that we support resume */
-	client_send_ctrl_msg(client, "211-extensions\n");
-	client_send_ctrl_msg(client, "REST STREAM\n");
-	client_send_ctrl_msg(client, "211 end\n");
+	client_send_ctrl_msg(client, "211-extensions" FTPVITA_EOL);
+	client_send_ctrl_msg(client, "REST STREAM" FTPVITA_EOL);
+	client_send_ctrl_msg(client, "211 end" FTPVITA_EOL);
 }
 
 static void cmd_APPE_func(ftpvita_client_info_t *client)
@@ -898,7 +898,7 @@ static int client_thread(SceSize args, void *argp)
 
 	DEBUG("Client thread %i started!\n", client->num);
 
-	client_send_ctrl_msg(client, "220 FTPVita Server ready.\n");
+	client_send_ctrl_msg(client, "220 FTPVita Server ready." FTPVITA_EOL);
 
 	while (1) {
 		memset(client->recv_buffer, 0, sizeof(client->recv_buffer));
@@ -919,7 +919,7 @@ static int client_thread(SceSize args, void *argp)
 			if ((dispatch_func = get_dispatch_func(cmd))) {
 				dispatch_func(client);
 			} else {
-				client_send_ctrl_msg(client, "502 Sorry, command not implemented. :(\n");
+				client_send_ctrl_msg(client, "502 Sorry, command not implemented. :(" FTPVITA_EOL);
 			}
 
 		} else if (client->n_recv == 0) {

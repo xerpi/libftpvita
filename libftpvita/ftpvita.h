@@ -21,6 +21,8 @@ void ftpvita_set_file_buf_size(unsigned int size);
 
 /* Extended functionality */
 
+#define FTPVITA_EOL "\r\n"
+
 typedef enum {
 	FTP_DATA_CONNECTION_NONE,
 	FTP_DATA_CONNECTION_ACTIVE,
