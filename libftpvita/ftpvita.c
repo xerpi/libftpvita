@@ -124,6 +124,12 @@ static inline const char *get_vita_path(const char *path)
 		return NULL;
 }
 
+static int file_exists(const char *path)
+{
+	SceIoStat stat;
+	return (sceIoGetstat(path, &stat) >= 0);
+}
+
 static void cmd_NOOP_func(ftpvita_client_info_t *client)
 {
 	client_send_ctrl_msg(client, "200 No operation ;)" FTPVITA_EOL);
@@ -301,7 +307,7 @@ static int gen_list_format(char *out, int n, int dir, unsigned int file_size,
 	};
 
 	return snprintf(out, n,
-		"%c%s 1 vita vita %u %s %-2d %02d:%02d %s\r" FTPVITA_EOL,
+		"%c%s 1 vita vita %u %s %-2d %02d:%02d %s" FTPVITA_EOL,
 		dir ? 'd' : '-',
 		dir ? "rwxr-xr-x" : "rw-r--r--",
 		file_size,
@@ -387,14 +393,17 @@ static void send_LIST(ftpvita_client_info_t *client, const char *path)
 static void cmd_LIST_func(ftpvita_client_info_t *client)
 {
 	char list_path[PATH_MAX];
+	int list_cur_path = 1;
 
 	int n = sscanf(client->recv_buffer, "%*s %[^\r\n\t]", list_path);
 
-	if (n > 0) {  /* Client specified a path */
-		send_LIST(client, list_path);
-	} else {      /* Use current path */
+	if (n > 0 && file_exists(list_path))
+		list_cur_path = 0;
+
+	if (list_cur_path)
 		send_LIST(client, client->cur_path);
-	}
+	else
+		send_LIST(client, list_path);
 }
 
 static void cmd_PWD_func(ftpvita_client_info_t *client)
@@ -513,9 +522,9 @@ static void send_file(ftpvita_client_info_t *client, const char *path)
 	DEBUG("Opening: %s\n", path);
 
 	if ((fd = sceIoOpen(path, SCE_O_RDONLY, 0777)) >= 0) {
-		
+
 		sceIoLseek32(fd, client->restore_point, SCE_SEEK_SET);
-		
+
 		buffer = malloc(file_buf_size);
 		if (buffer == NULL) {
 			client_send_ctrl_msg(client, "550 Could not allocate memory." FTPVITA_EOL);
@@ -571,9 +580,9 @@ static void receive_file(ftpvita_client_info_t *client, const char *path)
 	int bytes_recv;
 
 	DEBUG("Opening: %s\n", path);
-	
+
 	int mode = SCE_O_CREAT | SCE_O_RDWR;
-	/* if we resume broken - append missing part 
+	/* if we resume broken - append missing part
 	 * else - overwrite file */
 	if (client->restore_point) {
 		mode = mode | SCE_O_APPEND;
@@ -581,9 +590,9 @@ static void receive_file(ftpvita_client_info_t *client, const char *path)
 	else {
 		mode = mode | SCE_O_TRUNC;
 	}
-		
+
 	if ((fd = sceIoOpen(path, mode, 0777)) >= 0) {
-		
+
 		buffer = malloc(file_buf_size);
 		if (buffer == NULL) {
 			client_send_ctrl_msg(client, "550 Could not allocate memory." FTPVITA_EOL);
@@ -677,12 +686,6 @@ static void cmd_MKD_func(ftpvita_client_info_t *client)
 	create_dir(client, get_vita_path(dest_path));
 }
 
-static int file_exists(const char *path)
-{
-	SceIoStat stat;
-	return (sceIoGetstat(path, &stat) >= 0);
-}
-
 static void cmd_RNFR_func(ftpvita_client_info_t *client)
 {
 	char path_src[PATH_MAX];
@@ -737,7 +740,7 @@ static void cmd_SIZE_func(ftpvita_client_info_t *client)
 }
 
 static void cmd_REST_func(ftpvita_client_info_t *client)
-{	
+{
 	char cmd[64];
 	sscanf(client->recv_buffer, "%*[^ ] %d", &client->restore_point);
 	sprintf(cmd, "350 Resuming at %d" FTPVITA_EOL, client->restore_point);
@@ -745,7 +748,7 @@ static void cmd_REST_func(ftpvita_client_info_t *client)
 }
 
 static void cmd_FEAT_func(ftpvita_client_info_t *client)
-{	
+{
 	/*So client would know that we support resume */
 	client_send_ctrl_msg(client, "211-extensions" FTPVITA_EOL);
 	client_send_ctrl_msg(client, "REST STREAM" FTPVITA_EOL);
@@ -753,10 +756,10 @@ static void cmd_FEAT_func(ftpvita_client_info_t *client)
 }
 
 static void cmd_APPE_func(ftpvita_client_info_t *client)
-{	
+{
 	/* set restore point to not 0
 	restore point numeric value only matters if we RETR file from vita.
-	If we STOR or APPE, it is only used to indicate that we want to resume 
+	If we STOR or APPE, it is only used to indicate that we want to resume
 	a broken transfer */
 	client->restore_point = -1;
 	char dest_path[PATH_MAX];
