@@ -1,8 +1,8 @@
-TITLE_ID = XERP00002
+TITLE_ID = FTPVITA00
 TARGET   = FTPVita
 OBJS     = main.o console.o draw.o font_data.o
 
-LIBS = -lftpvita -lc -lSceKernel_stub -lSceDisplay_stub -lSceGxm_stub	\
+LIBS = -lftpvita -lc -lSceDisplay_stub -lSceGxm_stub	\
 	-lSceNet_stub -lSceNetCtl_stub -lSceCtrl_stub -lSceAppUtil_stub \
 	-lSceSysmodule_stub
 
