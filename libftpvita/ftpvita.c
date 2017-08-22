@@ -18,6 +18,8 @@
 #include <psp2/net/net.h>
 #include <psp2/net/netctl.h>
 
+#include <psp2/rtc.h>
+
 #define UNUSED(x) (void)(x)
 
 #define NET_CTL_ERROR_NOT_TERMINATED 0x80412102
@@ -298,23 +300,33 @@ static void client_close_data_connection(ftpvita_client_info_t *client)
 	client->data_con_type = FTP_DATA_CONNECTION_NONE;
 }
 
-static int gen_list_format(char *out, int n, int dir, unsigned int file_size,
-	int month_n, int day_n, int hour, int minute, const char *filename)
+static int gen_list_format(char *out, int n, int dir, const SceIoStat *stat, const char *filename)
 {
 	static const char num_to_month[][4] = {
 		"Jan", "Feb", "Mar", "Apr", "May", "Jun",
 		"Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 	};
 
+	SceDateTime cdt;
+	sceRtcGetCurrentClockLocalTime(&cdt);
+
+	char yt[6];
+
+	if  (cdt.year == stat->st_mtime.year) {
+		snprintf(yt, 6, "%02d:%02d", stat->st_mtime.hour, stat->st_mtime.minute);
+	}
+	else {
+		snprintf(yt, 6, "%04d", stat->st_mtime.year);		
+	}
+
 	return snprintf(out, n,
-		"%c%s 1 vita vita %u %s %-2d %02d:%02d %s" FTPVITA_EOL,
+		"%c%s 1 vita vita %u %s %-2d %s %s" FTPVITA_EOL,
 		dir ? 'd' : '-',
 		dir ? "rwxr-xr-x" : "rw-r--r--",
-		file_size,
-		num_to_month[month_n<=0?0:(month_n-1)%12],
-		day_n,
-		hour,
-		minute,
+		(unsigned int) stat->st_size,
+		num_to_month[stat->st_mtime.month<=0?0:(stat->st_mtime.month-1)%12],
+		stat->st_mtime.day,
+		yt,
 		filename);
 }
 
@@ -351,14 +363,7 @@ static void send_LIST(ftpvita_client_info_t *client, const char *path)
 			if (device_list[i].valid) {
 				devname = device_list[i].name;
 				if (sceIoGetstat(devname, &stat) >= 0) {
-					gen_list_format(buffer, sizeof(buffer),
-						1,
-						stat.st_size,
-						stat.st_mtime.month,
-						stat.st_mtime.day,
-						stat.st_mtime.hour,
-						stat.st_mtime.minute,
-						devname);
+					gen_list_format(buffer, sizeof(buffer),	1, &stat, devname);
 					client_send_data_msg(client, buffer);
 				}
 			}
@@ -367,15 +372,8 @@ static void send_LIST(ftpvita_client_info_t *client, const char *path)
 		memset(&dirent, 0, sizeof(dirent));
 
 		while (sceIoDread(dir, &dirent) > 0) {
-			gen_list_format(buffer, sizeof(buffer),
-				SCE_S_ISDIR(dirent.d_stat.st_mode),
-				dirent.d_stat.st_size,
-				dirent.d_stat.st_ctime.month,
-				dirent.d_stat.st_ctime.day,
-				dirent.d_stat.st_ctime.hour,
-				dirent.d_stat.st_ctime.minute,
-				dirent.d_name);
-
+			gen_list_format(buffer, sizeof(buffer), SCE_S_ISDIR(dirent.d_stat.st_mode),
+				&dirent.d_stat, dirent.d_name);
 			client_send_data_msg(client, buffer);
 			memset(&dirent, 0, sizeof(dirent));
 			memset(buffer, 0, sizeof(buffer));
