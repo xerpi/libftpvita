@@ -226,7 +226,7 @@ static void cmd_PORT_func(ftpvita_client_info_t *client)
 	SceNetInAddr data_addr;
 
 	/* Using ints because of newlibc's u8 sscanf bug */
-	sscanf(client->recv_buffer, "%*s %d,%d,%d,%d,%d,%d",
+	sscanf(client->recv_cmd_args, "%d,%d,%d,%d,%d,%d",
 		&data_ip[0], &data_ip[1], &data_ip[2], &data_ip[3],
 		&porthi, &portlo);
 
@@ -307,16 +307,15 @@ static int gen_list_format(char *out, int n, int dir, const SceIoStat *stat, con
 		"Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
 	};
 
+	char yt[6];
 	SceDateTime cdt;
 	sceRtcGetCurrentClockLocalTime(&cdt);
 
-	char yt[6];
-
 	if  (cdt.year == stat->st_mtime.year) {
-		snprintf(yt, 6, "%02d:%02d", stat->st_mtime.hour, stat->st_mtime.minute);
+		snprintf(yt, sizeof(yt), "%02d:%02d", stat->st_mtime.hour, stat->st_mtime.minute);
 	}
 	else {
-		snprintf(yt, 6, "%04d", stat->st_mtime.year);		
+		snprintf(yt, sizeof(yt), "%04d", stat->st_mtime.year);
 	}
 
 	return snprintf(out, n,
@@ -393,7 +392,7 @@ static void cmd_LIST_func(ftpvita_client_info_t *client)
 	char list_path[PATH_MAX];
 	int list_cur_path = 1;
 
-	int n = sscanf(client->recv_buffer, "%*s %[^\r\n\t]", list_path);
+	int n = sscanf(client->recv_cmd_args, "%[^\r\n\t]", list_path);
 
 	if (n > 0 && file_exists(list_path))
 		list_cur_path = 0;
@@ -407,7 +406,7 @@ static void cmd_LIST_func(ftpvita_client_info_t *client)
 static void cmd_PWD_func(ftpvita_client_info_t *client)
 {
 	char msg[PATH_MAX];
-	sprintf(msg, "257 \"%s\" is the current directory." FTPVITA_EOL, client->cur_path);
+	snprintf(msg, sizeof(msg), "257 \"%s\" is the current directory." FTPVITA_EOL, client->cur_path);
 	client_send_ctrl_msg(client, msg);
 }
 
@@ -441,7 +440,7 @@ static void cmd_CWD_func(ftpvita_client_info_t *client)
 	char cmd_path[PATH_MAX];
 	char tmp_path[PATH_MAX];
 	SceUID pd;
-	int n = sscanf(client->recv_buffer, "%*s %[^\r\n\t]", cmd_path);
+	int n = sscanf(client->recv_cmd_args, "%[^\r\n\t]", cmd_path);
 
 	if (n < 1) {
 		client_send_ctrl_msg(client, "500 Syntax error, command unrecognized." FTPVITA_EOL);
@@ -457,9 +456,9 @@ static void cmd_CWD_func(ftpvita_client_info_t *client)
 				/* If we are at the root of the device, don't add
 				 * an slash to add new path */
 				if (path_is_at_root(client->cur_path))
-					sprintf(tmp_path, "%s%s", client->cur_path, cmd_path);
+					snprintf(tmp_path, sizeof(tmp_path), "%s%s", client->cur_path, cmd_path);
 				else
-					sprintf(tmp_path, "%s/%s", client->cur_path, cmd_path);
+					snprintf(tmp_path, sizeof(tmp_path), "%s/%s", client->cur_path, cmd_path);
 			}
 
 			/* If the path is like: /foo: add an slash */
@@ -486,7 +485,7 @@ static void cmd_TYPE_func(ftpvita_client_info_t *client)
 {
 	char data_type;
 	char format_control[8];
-	int n_args = sscanf(client->recv_buffer, "%*s %c %s", &data_type, format_control);
+	int n_args = sscanf(client->recv_cmd_args, "%c %s", &data_type, format_control);
 
 	if (n_args > 0) {
 		switch(data_type) {
@@ -547,27 +546,32 @@ static void send_file(ftpvita_client_info_t *client, const char *path)
 	}
 }
 
-/* This function generates an FTP valid path with the input path
+/* This function generates an FTP full-path with the input path (relative or absolute)
  * from RETR, STOR, DELE, RMD, MKD, RNFR and RNTO commands */
-static void gen_filepath(ftpvita_client_info_t *client, char *dest_path)
+static void gen_ftp_fullpath(ftpvita_client_info_t *client, char *path, size_t path_size)
 {
 	char cmd_path[PATH_MAX];
-	sscanf(client->recv_buffer, "%*[^ ] %[^\r\n\t]", cmd_path);
+	sscanf(client->recv_cmd_args, "%[^\r\n\t]", cmd_path);
 
 	if (cmd_path[0] == '/') {
 		/* Full path */
-		strcpy(dest_path, cmd_path);
+		strncpy(path, cmd_path, path_size);
 	} else {
-		/* The file is relative to current dir, so
-		 * append the file to the current path */
-		sprintf(dest_path, "%s/%s", client->cur_path, cmd_path);
+		if (strlen(cmd_path) >= 5 && cmd_path[3] == ':' && cmd_path[4] == '/') {
+			/* Case "ux0:/foo */
+			snprintf(path, path_size, "/%s", cmd_path);
+		} else {
+			/* The file is relative to current dir, so
+			 * append the file to the current path */
+			snprintf(path, path_size, "%s/%s", client->cur_path, cmd_path);
+		}
 	}
 }
 
 static void cmd_RETR_func(ftpvita_client_info_t *client)
 {
 	char dest_path[PATH_MAX];
-	gen_filepath(client, dest_path);
+	gen_ftp_fullpath(client, dest_path, sizeof(dest_path));
 	send_file(client, get_vita_path(dest_path));
 }
 
@@ -623,7 +627,7 @@ static void receive_file(ftpvita_client_info_t *client, const char *path)
 static void cmd_STOR_func(ftpvita_client_info_t *client)
 {
 	char dest_path[PATH_MAX];
-	gen_filepath(client, dest_path);
+	gen_ftp_fullpath(client, dest_path, sizeof(dest_path));
 	receive_file(client, get_vita_path(dest_path));
 }
 
@@ -641,7 +645,7 @@ static void delete_file(ftpvita_client_info_t *client, const char *path)
 static void cmd_DELE_func(ftpvita_client_info_t *client)
 {
 	char dest_path[PATH_MAX];
-	gen_filepath(client, dest_path);
+	gen_ftp_fullpath(client, dest_path, sizeof(dest_path));
 	delete_file(client, get_vita_path(dest_path));
 }
 
@@ -662,7 +666,7 @@ static void delete_dir(ftpvita_client_info_t *client, const char *path)
 static void cmd_RMD_func(ftpvita_client_info_t *client)
 {
 	char dest_path[PATH_MAX];
-	gen_filepath(client, dest_path);
+	gen_ftp_fullpath(client, dest_path, sizeof(dest_path));
 	delete_dir(client, get_vita_path(dest_path));
 }
 
@@ -680,7 +684,7 @@ static void create_dir(ftpvita_client_info_t *client, const char *path)
 static void cmd_MKD_func(ftpvita_client_info_t *client)
 {
 	char dest_path[PATH_MAX];
-	gen_filepath(client, dest_path);
+	gen_ftp_fullpath(client, dest_path, sizeof(dest_path));
 	create_dir(client, get_vita_path(dest_path));
 }
 
@@ -689,7 +693,7 @@ static void cmd_RNFR_func(ftpvita_client_info_t *client)
 	char path_src[PATH_MAX];
 	const char *vita_path_src;
 	/* Get the origin filename */
-	gen_filepath(client, path_src);
+	gen_ftp_fullpath(client, path_src, sizeof(path_src));
 	vita_path_src = get_vita_path(path_src);
 
 	/* Check if the file exists */
@@ -707,7 +711,7 @@ static void cmd_RNTO_func(ftpvita_client_info_t *client)
 	char path_dst[PATH_MAX];
 	const char *vita_path_dst;
 	/* Get the destination filename */
-	gen_filepath(client, path_dst);
+	gen_ftp_fullpath(client, path_dst,sizeof(path_dst));
 	vita_path_dst = get_vita_path(path_dst);
 
 	DEBUG("Renaming: %s to %s\n", client->rename_path, vita_path_dst);
@@ -725,7 +729,7 @@ static void cmd_SIZE_func(ftpvita_client_info_t *client)
 	char path[PATH_MAX];
 	char cmd[64];
 	/* Get the filename to retrieve its size */
-	gen_filepath(client, path);
+	gen_ftp_fullpath(client, path, sizeof(path));
 
 	/* Check if the file exists */
 	if (sceIoGetstat(get_vita_path(path), &stat) < 0) {
@@ -761,7 +765,7 @@ static void cmd_APPE_func(ftpvita_client_info_t *client)
 	a broken transfer */
 	client->restore_point = -1;
 	char dest_path[PATH_MAX];
-	gen_filepath(client, dest_path);
+	gen_ftp_fullpath(client, dest_path, sizeof(dest_path));
 	receive_file(client, get_vita_path(dest_path));
 }
 
@@ -911,8 +915,12 @@ static int client_thread(SceSize args, void *argp)
 
 			INFO("\t%i> %s", client->num, client->recv_buffer);
 
-			/* The command are the first chars until the first space */
+			/* The command is the first chars until the first space */
 			sscanf(client->recv_buffer, "%s", cmd);
+
+			client->recv_cmd_args = strchr(client->recv_buffer, ' ');
+			if (client->recv_cmd_args)
+				client->recv_cmd_args++; /* Skip the space */
 
 			/* Wait 1 ms before sending any data */
 			sceKernelDelayThread(1*1000);

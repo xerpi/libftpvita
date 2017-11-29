@@ -51,6 +51,8 @@ typedef struct ftpvita_client_info {
 	/* Receive buffer attributes */
 	int n_recv;
 	char recv_buffer[512];
+	/* Points to the character after the first space */
+	const char *recv_cmd_args;
 	/* Current working directory */
 	char cur_path[PATH_MAX];
 	/* Rename path */
