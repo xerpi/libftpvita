@@ -703,7 +703,7 @@ static void cmd_RNFR_func(ftpvita_client_info_t *client)
 	}
 	/* The file to be renamed is the received path */
 	strcpy(client->rename_path, vita_path_src);
-	client_send_ctrl_msg(client, "250 I need the destination name b0ss." FTPVITA_EOL);
+	client_send_ctrl_msg(client, "350 I need the destination name b0ss." FTPVITA_EOL);
 }
 
 static void cmd_RNTO_func(ftpvita_client_info_t *client)
