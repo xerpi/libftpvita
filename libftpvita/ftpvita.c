@@ -921,6 +921,8 @@ static int client_thread(SceSize args, void *argp)
 			client->recv_cmd_args = strchr(client->recv_buffer, ' ');
 			if (client->recv_cmd_args)
 				client->recv_cmd_args++; /* Skip the space */
+			else
+				client->recv_cmd_args = client->recv_buffer;
 
 			/* Wait 1 ms before sending any data */
 			sceKernelDelayThread(1*1000);
