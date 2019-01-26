@@ -3,9 +3,9 @@ FTP Server for the PSVita.
 
 ## Compiling
 Prerequisites:
-* [vitasdk] (https://github.com/vitasdk/buildscripts)
+* [vitasdk](https://vitasdk.org/)
 
-Once all the prerequisites have been met, you can compile this homebrew by typing:
+Once all the prerequisites have been met, you can compile this library by typing:
 ```
 	$ make
 ```
