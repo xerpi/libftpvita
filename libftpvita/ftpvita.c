@@ -754,6 +754,7 @@ static void cmd_FEAT_func(ftpvita_client_info_t *client)
 	/*So client would know that we support resume */
 	client_send_ctrl_msg(client, "211-extensions" FTPVITA_EOL);
 	client_send_ctrl_msg(client, " REST STREAM" FTPVITA_EOL);
+	client_send_ctrl_msg(client, " UTF8" FTPVITA_EOL);
 	client_send_ctrl_msg(client, "211 end" FTPVITA_EOL);
 }
 
