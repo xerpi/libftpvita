@@ -753,8 +753,13 @@ static void cmd_FEAT_func(ftpvita_client_info_t *client)
 {
 	/*So client would know that we support resume */
 	client_send_ctrl_msg(client, "211-extensions" FTPVITA_EOL);
-	client_send_ctrl_msg(client, "REST STREAM" FTPVITA_EOL);
+	client_send_ctrl_msg(client, " REST STREAM" FTPVITA_EOL);
 	client_send_ctrl_msg(client, "211 end" FTPVITA_EOL);
+}
+
+static void cmd_OPTS_func(ftpvita_client_info_t *client)
+{
+	client_send_ctrl_msg(client, "501 bad OPTS" FTPVITA_EOL);
 }
 
 static void cmd_APPE_func(ftpvita_client_info_t *client)
@@ -793,6 +798,7 @@ static const cmd_dispatch_entry cmd_dispatch_table[] = {
 	add_entry(SIZE),
 	add_entry(REST),
 	add_entry(FEAT),
+	add_entry(OPTS),
 	add_entry(APPE),
 	{NULL, NULL}
 };
