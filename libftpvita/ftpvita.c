@@ -394,7 +394,7 @@ static void cmd_LIST_func(ftpvita_client_info_t *client)
 
 	int n = sscanf(client->recv_cmd_args, "%[^\r\n\t]", list_path);
 
-	if (n > 0 && file_exists(list_path))
+	if (n > 0 && file_exists(get_vita_path(list_path)))
 		list_cur_path = 0;
 
 	if (list_cur_path)
